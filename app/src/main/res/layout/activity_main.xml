@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    tools:context=".MainActivity">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/playerView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:show_previous_button ="false"
+        app:show_next_button ="false"
+        app:show_rewind_button="false"
+        app:show_fastforward_button="false"
+        app:hide_on_touch ="false"
+        app:animation_enabled="false"
+        app:show_subtitle_button="true"
+        app:time_bar_scrubbing_enabled ="true"
+        app:show_timeout="0"
+        app:played_color="#00000000"
+        app:unplayed_color="#00000000"
+        app:buffered_color="#88FFFFFF"
+        app:bar_height="24dp"
+        app:scrubber_color ="#00000000"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
