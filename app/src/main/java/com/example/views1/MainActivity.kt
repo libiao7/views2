@@ -20,6 +20,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -69,7 +70,10 @@ class MainActivity : AppCompatActivity() {
             .build()
 
 // 使用这个 loadControl 初始化 player
-        player = ExoPlayer.Builder(this)
+        // 1. 显式创建支持扩展的工厂
+        val renderersFactory = DefaultRenderersFactory(this)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        player = ExoPlayer.Builder(this, renderersFactory)
             .setLoadControl(loadControl)
             .build()
 //        player = ExoPlayer.Builder(this).build()
