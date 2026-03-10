@@ -23,6 +23,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -136,24 +137,45 @@ class MainActivity : AppCompatActivity() {
             .setUserAgent(ua)
             .setAllowCrossProtocolRedirects(true)
 
-        // 检查 URL 中是否包含 user:password@ 格式
+        // --- 认证逻辑保持不变 ---
         val userInfo = uri.userInfo
         if (!userInfo.isNullOrEmpty()) {
-            // 构建 Basic Auth 响应头
-            // 注意：Base64.NO_WRAP 是必须的，防止生成换行符导致 Header 报错
-            val authHeader =
-                "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
-
-            dataSourceFactory.setDefaultRequestProperties(
-                mapOf(
-                    "Authorization" to authHeader
-                )
-            )
+            val authHeader = "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
+            dataSourceFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
         }
 
-        // 创建媒体源
-        val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(uri))
+        // --- 核心：自动构建字幕配置 ---
+        val subtitleConfigurations = mutableListOf<MediaItem.SubtitleConfiguration>()
+        val extensions = listOf("srt","chs.srt","ass","chs.ass")
+
+        // 获取不带后缀的基础路径 (例如: http://x.com/v.mp4 -> http://x.com/v)
+        val basePath = url.substringBeforeLast(".")
+
+        extensions.forEach { ext ->
+            val subtitleUri = Uri.parse("$basePath.$ext")
+            val mimeType = when (ext) {
+                "srt","chs.srt" -> "application/x-subrip"
+                "ass", "chs.ass" -> "text/x-ssa"
+                else -> "text/plain"
+            }
+
+            val subConfig = MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+                .setMimeType(mimeType)
+                .setLanguage(ext) // 可选：设置语言标签
+                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                .build()
+            subtitleConfigurations.add(subConfig)
+        }
+
+        // 创建带字幕的 MediaItem
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setSubtitleConfigurations(subtitleConfigurations)
+            .build()
+
+        // 使用默认的 MediaSource 工厂，它会自动处理多媒体源
+        val mediaSource = DefaultMediaSourceFactory(dataSourceFactory)
+            .createMediaSource(mediaItem)
 
         player.setMediaSource(mediaSource)
         player.prepare()
