@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
-import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.MotionEvent
@@ -25,7 +24,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
-import androidx.media3.ui.SubtitleView
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -56,46 +54,53 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    private fun initPlayer() {
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                128000, // minBufferMs: 至少缓冲多少
-                256000, // maxBufferMs: 最多缓冲多少
-                1500,  // bufferForPlaybackMs: 起播缓冲
-                2000,  // bufferForPlaybackAfterRebufferMs: 卡顿后重新起播缓冲
-            )
-            .setBackBuffer(128000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
-            .build()
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
 
-// 使用这个 loadControl 初始化 player
-        // 1. 显式创建支持扩展的工厂
-        val renderersFactory = DefaultRenderersFactory(this)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-        player = ExoPlayer.Builder(this, renderersFactory)
-            .setLoadControl(loadControl)
-            .build()
-//        player = ExoPlayer.Builder(this).build()
+        // 必做：更新当前 Activity 的 intent，否则调用 handleIntent(intent) 拿到的还是旧的
+        setIntent(intent)
+
+        // 2. 停止当前正在播放的内容
+//        player.stop()
+//        player.clearMediaItems()
+// 直接调用 handleIntent 即可
+        // 只要 handleIntent 内部使用的是 player.setMediaItem(mediaItem)
+        // 它会自动帮你把旧的 MediaItem 替换掉，不需要额外手动 clear
+        // 3. 处理新的视频数据并开始播放
+        handleIntent(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        player.pause() // 只要用户看不见界面，就强制暂停
+    }
+
+    private fun initPlayer() {
+        player = ExoPlayer.Builder(
+            this,
+            DefaultRenderersFactory(this).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        ).setLoadControl(
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    128000, // minBufferMs: 至少缓冲多少
+                    256000, // maxBufferMs: 最多缓冲多少
+                    1500,  // bufferForPlaybackMs: 起播缓冲
+                    2000,  // bufferForPlaybackAfterRebufferMs: 卡顿后重新起播缓冲
+                )
+                .setBackBuffer(128000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
+                .build()
+        ).build()
         playerView.player = player
-// --- 修改字幕样式开始 ---
-        val subtitleView = playerView.subtitleView
-        if (subtitleView != null) {
-            // 创建自定义样式：白色文字、透明背景、带黑色阴影边缘
-            val style = CaptionStyleCompat(
+        playerView.subtitleView?.setStyle(
+            CaptionStyleCompat(
                 0xFF555555.toInt(),              // 字体颜色
                 0x55000000,        // 背景颜色 (设为透明更美观)
                 Color.TRANSPARENT,        // 窗口颜色
-                CaptionStyleCompat.EDGE_TYPE_NONE, // 边缘类型：阴影
+                CaptionStyleCompat.EDGE_TYPE_NONE, // 边缘类型
                 Color.BLACK,              // 边缘颜色
                 null                      // 字体 (null 为系统默认)
             )
-
-            subtitleView.setStyle(style)
-
-            // 设置字幕大小：基于播放器高度的比例 (0.053f 是一个比较舒服的默认值)
-            // 你可以尝试 0.06f 让字体更大一些
-            subtitleView.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.1f)
-        }
-        // --- 修改字幕样式结束 ---
+        )
         // 自动旋转逻辑：根据视频宽高比决定横竖屏
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
