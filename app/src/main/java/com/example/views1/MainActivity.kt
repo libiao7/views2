@@ -1,19 +1,17 @@
 package com.example.views1
 
-import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.net.Uri
+import android.os.Bundle
 import android.util.Base64
 import android.view.MotionEvent
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -24,7 +22,6 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
@@ -122,62 +119,57 @@ class MainActivity : AppCompatActivity() {
             val encodedUrl = segments.getOrNull(0) ?: return
             val url = String(Base64.decode(encodedUrl, Base64.DEFAULT))
 
-            // 提取加密后的 UA (可选)
-            val ua = segments.getOrNull(1)?.let {
+            // 提取加密后的 字幕URL (可选)
+            val subURL = segments.getOrNull(1)?.let {
                 String(Base64.decode(it, Base64.DEFAULT))
-            } ?: "DefaultUserAgent/1.0" // 默认 UA
+            }// ?: "" // 默认 subURL
 
-            startPlay(url, ua)
+            startPlay(url, subURL)
         }
     }
 
-    private fun startPlay(url: String, ua: String) {
+    private fun startPlay(url: String, subURL: String?) {
         val uri = url.toUri()
         val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(ua)
+//            .setUserAgent(ua)
             .setAllowCrossProtocolRedirects(true)
 
         // --- 认证逻辑保持不变 ---
         val userInfo = uri.userInfo
         if (!userInfo.isNullOrEmpty()) {
-            val authHeader = "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
+            val authHeader =
+                "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
             dataSourceFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
-        }
-
-        // --- 核心：自动构建字幕配置 ---
-        val subtitleConfigurations = mutableListOf<MediaItem.SubtitleConfiguration>()
-        val extensions = listOf("srt","chs.srt","ass","chs.ass")
-
-        // 获取不带后缀的基础路径 (例如: http://x.com/v.mp4 -> http://x.com/v)
-        val basePath = url.substringBeforeLast(".")
-
-        extensions.forEach { ext ->
-            val subtitleUri = Uri.parse("$basePath.$ext")
-            val mimeType = when (ext) {
-                "srt","chs.srt" -> "application/x-subrip"
-                "ass", "chs.ass" -> "text/x-ssa"
-                else -> "text/plain"
-            }
-
-            val subConfig = MediaItem.SubtitleConfiguration.Builder(subtitleUri)
-                .setMimeType(mimeType)
-                .setLanguage(ext) // 可选：设置语言标签
-                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
-                .build()
-            subtitleConfigurations.add(subConfig)
         }
 
         // 创建带字幕的 MediaItem
         val mediaItem = MediaItem.Builder()
-            .setUri(uri)
-            .setSubtitleConfigurations(subtitleConfigurations)
+            .setUri(uri).apply {
+                if (subURL != null) {
+                    val mimeType = if (subURL.endsWith(".srt", ignoreCase = true)) {
+                        "application/x-subrip"
+                    } else if (subURL.endsWith(".ass", ignoreCase = true)) {
+                        "text/x-ssa"
+                    } else {
+                        "text/plain"
+                    }
+                    setSubtitleConfigurations(
+                        listOf(
+                            MediaItem.SubtitleConfiguration.Builder(subURL.toUri())
+                                .setMimeType(mimeType)
+                                .setLanguage(mimeType.substringAfterLast('-')) // 可选：设置语言标签
+                                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                                .build()
+                        )
+                    )
+                }
+            }
             .build()
 
-        // 使用默认的 MediaSource 工厂，它会自动处理多媒体源
-        val mediaSource = DefaultMediaSourceFactory(dataSourceFactory)
-            .createMediaSource(mediaItem)
-
-        player.setMediaSource(mediaSource)
+        player.setMediaSource(
+            DefaultMediaSourceFactory(dataSourceFactory)
+                .createMediaSource(mediaItem)
+        )
         player.prepare()
         player.play()
     }
