@@ -111,8 +111,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        val data: Uri? = intent?.data
-        if (data != null && data.scheme == "pauseplayer") {
+        val data = intent?.data ?: return
+
+        if (data.scheme == "pauseplayer") {
             val segments = data.pathSegments
 
             // 提取加密后的 URL (必选)
@@ -122,54 +123,60 @@ class MainActivity : AppCompatActivity() {
             // 提取加密后的 字幕URL (可选)
             val subURL = segments.getOrNull(1)?.let {
                 String(Base64.decode(it, Base64.DEFAULT))
-            }// ?: "" // 默认 subURL
+            }
 
             startPlay(url, subURL)
+        } else if (intent?.action == Intent.ACTION_VIEW) {
+            // 处理从文件管理器打开的情况
+            startPlay(data.toString(), null)
         }
     }
 
     private fun startPlay(url: String, subURL: String?) {
         val uri = url.toUri()
-        val dataSourceFactory = DefaultHttpDataSource.Factory()
-//            .setUserAgent(ua)
-            .setAllowCrossProtocolRedirects(true)
 
-        // --- 认证逻辑保持不变 ---
-        val userInfo = uri.userInfo
-        if (!userInfo.isNullOrEmpty()) {
-            val authHeader =
-                "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
-            dataSourceFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
+        // 创建 MediaItem
+        val mediaItemBuilder = MediaItem.Builder().setUri(uri)
+
+        if (subURL != null) {
+            val mimeType = when {
+                subURL.endsWith(".srt", ignoreCase = true) -> "application/x-subrip"
+                subURL.endsWith(".ass", ignoreCase = true) -> "text/x-ssa"
+                else -> "text/plain"
+            }
+            mediaItemBuilder.setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(subURL.toUri())
+                        .setMimeType(mimeType)
+                        .setLanguage(mimeType.substringAfterLast('-'))
+                        .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                        .build()
+                )
+            )
+        }
+        val mediaItem = mediaItemBuilder.build()
+
+        // 根据 URL 类型选择合适的 DataSource
+        if (uri.scheme?.startsWith("http") == true) {
+            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+
+            val userInfo = uri.userInfo
+            if (!userInfo.isNullOrEmpty()) {
+                val authHeader =
+                    "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
+                httpDataSourceFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
+            }
+
+            player.setMediaSource(
+                DefaultMediaSourceFactory(httpDataSourceFactory)
+                    .createMediaSource(mediaItem)
+            )
+        } else {
+            // 本地文件或 Content Provider
+            player.setMediaItem(mediaItem)
         }
 
-        // 创建带字幕的 MediaItem
-        val mediaItem = MediaItem.Builder()
-            .setUri(uri).apply {
-                if (subURL != null) {
-                    val mimeType = if (subURL.endsWith(".srt", ignoreCase = true)) {
-                        "application/x-subrip"
-                    } else if (subURL.endsWith(".ass", ignoreCase = true)) {
-                        "text/x-ssa"
-                    } else {
-                        "text/plain"
-                    }
-                    setSubtitleConfigurations(
-                        listOf(
-                            MediaItem.SubtitleConfiguration.Builder(subURL.toUri())
-                                .setMimeType(mimeType)
-                                .setLanguage(mimeType.substringAfterLast('-')) // 可选：设置语言标签
-                                .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
-                                .build()
-                        )
-                    )
-                }
-            }
-            .build()
-
-        player.setMediaSource(
-            DefaultMediaSourceFactory(dataSourceFactory)
-                .createMediaSource(mediaItem)
-        )
         player.prepare()
         player.play()
     }
