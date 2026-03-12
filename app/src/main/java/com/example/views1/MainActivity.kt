@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.MotionEvent
@@ -123,11 +124,11 @@ class MainActivity : AppCompatActivity() {
 
             // 提取加密后的 URL (必选)
             val encodedUrl = segments.getOrNull(0) ?: return
-            val url = String(Base64.decode(encodedUrl, Base64.DEFAULT))
+            val url = Uri.decode(String(Base64.decode(encodedUrl, Base64.DEFAULT)))
 
             // 提取加密后的 字幕URL (可选)
             val subURL = segments.getOrNull(1)?.let {
-                String(Base64.decode(it, Base64.DEFAULT))
+                Uri.decode(String(Base64.decode(it, Base64.DEFAULT)))
             }
 
             startPlay(url, subURL)
