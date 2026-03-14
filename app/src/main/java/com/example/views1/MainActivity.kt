@@ -82,13 +82,13 @@ class MainActivity : AppCompatActivity() {
             DefaultRenderersFactory(this).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         ).setLoadControl(
             DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    128000, // minBufferMs: 至少缓冲多少
-                    256000, // maxBufferMs: 最多缓冲多少
-                    1500,  // bufferForPlaybackMs: 起播缓冲
-                    2000,  // bufferForPlaybackAfterRebufferMs: 卡顿后重新起播缓冲
-                )
-                .setBackBuffer(128000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
+//                .setBufferDurationsMs(
+//                    128000, // minBufferMs: 至少缓冲多少
+//                    256000, // maxBufferMs: 最多缓冲多少
+//                    1500,  // bufferForPlaybackMs: 起播缓冲
+//                    2000,  // bufferForPlaybackAfterRebufferMs: 卡顿后重新起播缓冲
+//                )
+                .setBackBuffer(12000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
                 .build()
         ).build()
         playerView.player = player

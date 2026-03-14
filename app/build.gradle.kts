@@ -15,7 +15,7 @@ android {
         minSdk = 36
         targetSdk = 36
         versionCode = 1
-        versionName = "2026.3.13-0256"
+        versionName = "2026.3.14-setBackBuffer12s"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
