@@ -240,7 +240,7 @@ class MainActivity : AppCompatActivity() {
                             player.play()
                             playerView.useController = false
                         } else { // 向上滑：2倍速播放
-                            player.setPlaybackSpeed(2.0f)
+                            player.setPlaybackSpeed(player.playbackParameters.speed * 2.0f)
                             player.play()
                             playerView.useController = false
                         }
