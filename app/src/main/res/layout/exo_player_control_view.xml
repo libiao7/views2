@@ -28,8 +28,8 @@
         android:id="@id/exo_bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="@dimen/exo_styled_bottom_bar_height"
-        android:layout_marginTop="@dimen/exo_styled_bottom_bar_margin_top"
         android:layout_gravity="bottom"
+        android:layout_marginBottom="42dp"
         android:layoutDirection="ltr">
 
         <LinearLayout
@@ -82,9 +82,9 @@
     <View
         android:id="@id/exo_progress_placeholder"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/exo_styled_progress_layout_height"
+        android:layout_height="120dp"
         android:layout_gravity="bottom"
-        android:layout_marginBottom="@dimen/exo_styled_progress_margin_bottom" />
+        android:layout_marginEnd="150dp" />
 
 
 </merge>
