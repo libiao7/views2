@@ -77,27 +77,6 @@
                 android:layout_marginEnd="48dp" />
         </LinearLayout>
 
-        <HorizontalScrollView
-            android:id="@id/exo_extra_controls_scroll_view"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical|end"
-            android:visibility="invisible">
-
-            <LinearLayout
-                android:id="@id/exo_extra_controls"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layoutDirection="ltr">
-
-                <ImageButton
-                    android:id="@id/exo_overflow_hide"
-                    style="@style/ExoStyledControls.Button.Bottom.OverflowHide" />
-
-            </LinearLayout>
-
-        </HorizontalScrollView>
-
     </FrameLayout>
 
     <View
