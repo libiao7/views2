@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
         // 根据 URL 类型选择合适的 DataSource
         if (uri.scheme?.startsWith("http") == true) {
             val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36")
                 .setAllowCrossProtocolRedirects(true)
 
             val userInfo = uri.userInfo
