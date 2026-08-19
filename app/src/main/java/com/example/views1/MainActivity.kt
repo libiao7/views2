@@ -35,6 +35,10 @@ class MainActivity : AppCompatActivity() {
     private var startX = 0f
     private var startY = 0f
 
+    // 1. 记录当前的解码模式与最新的播放参数
+    private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
+    private var currentUrl: String? = null
+    private var currentSubUrl: String? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -48,7 +52,7 @@ class MainActivity : AppCompatActivity() {
         // 1. 初始化界面逻辑
         playerView = findViewById(R.id.playerView)
         applyFullScreen()
-        initPlayer()
+        initPlayer(currentExtensionRendererMode)
 
         // 2. 处理启动意图
         handleIntent(intent)
@@ -76,10 +80,16 @@ class MainActivity : AppCompatActivity() {
         player.pause() // 只要用户看不见界面，就强制暂停
     }
 
-    private fun initPlayer() {
+    // 2. 改造 initPlayer 支持传入 extensionRendererMode 参数
+    private fun initPlayer(extensionRendererMode: Int) {
+        // 如果已存在 player 实例，先释放
+        if (::player.isInitialized) {
+            player.release()
+        }
+
         player = ExoPlayer.Builder(
             this,
-            DefaultRenderersFactory(this).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            DefaultRenderersFactory(this).setExtensionRendererMode(extensionRendererMode)
         ).setLoadControl(
             DefaultLoadControl.Builder()
 //                .setBufferDurationsMs(
@@ -111,6 +121,53 @@ class MainActivity : AppCompatActivity() {
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                 }
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                // 1. 获取最详细的错误追踪文本
+                val fullDescription = android.util.Log.getStackTraceString(error)
+
+                // 2. 在控制台打印，方便调试
+                android.util.Log.e("PlayerError", "详细错误内容: $fullDescription")
+
+                // 3. 使用 AlertDialog 弹窗显示详细信息并提供用户选项（类似 confirm）
+                androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("播放发生错误")
+                    .setMessage(fullDescription) // 内容过多时对话框会自动支持上下滚动
+                    .setCancelable(false) // 点击弹窗外部不自动关闭，强制用户做出选择
+                    // 3. 修改 PositiveButton 逻辑：切换模式并重试播放
+                    .setPositiveButton("优先软解重试(PREFER)") { dialog, _ ->
+                        dialog.dismiss()
+
+                        // 修改为优先扩展（软解）模式
+                        currentExtensionRendererMode =
+                            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                        initPlayer(currentExtensionRendererMode)
+
+                        // 重新播放当前记录的媒体资源
+                        if (currentUrl != null) {
+                            startPlay(currentUrl!!, currentSubUrl)
+                        }
+                    }
+                    .setNeutralButton("复制错误信息") { dialog, _ ->                        // 点击确定按钮：复制到剪贴板
+                        val clipboard =
+                            getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val clip =
+                            android.content.ClipData.newPlainText("Player Error", fullDescription)
+                        clipboard.setPrimaryClip(clip)
+
+                        android.widget.Toast.makeText(
+                            this@MainActivity,
+                            "已复制到剪贴板",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton("关闭") { dialog, _ ->
+                        // 点击取消/关闭按钮：仅关闭弹窗
+                        dialog.dismiss()
+                    }
+                    .show()
+            }
         })
 
         setupTouchLogic()
@@ -139,6 +196,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPlay(url: String, subURL: String?) {
+        // 4. 保存当前播放参数，以便重新创建 Player 时重试
+        this.currentUrl = url
+        this.currentSubUrl = subURL
         val uri = url.toUri()
 
         // 创建 MediaItem
@@ -278,6 +338,8 @@ class MainActivity : AppCompatActivity() {
     // 释放资源
     override fun onDestroy() {
         super.onDestroy()
-        player.release()
+        if (::player.isInitialized) {
+            player.release()
+        }
     }
 }

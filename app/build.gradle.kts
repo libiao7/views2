@@ -15,7 +15,8 @@ android {
         minSdk = 36
         targetSdk = 36
         versionCode = 1
-        versionName = "2026.4.8-120-100"
+        versionName =
+            "2026.8.20-EXTENSION_RENDERER_MODE_ON_PREFER-lib-decoder-ffmpeg-release-media3-1.11.0.aar"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,7 +46,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
-    implementation("androidx.media3:media3-exoplayer:1.9.2")
-    implementation("androidx.media3:media3-ui:1.9.2")
-    implementation(files("libs/lib-decoder-ffmpeg-release.aar"))
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(files("libs/lib-decoder-ffmpeg-release-media3-1.11.0.aar"))
 }
