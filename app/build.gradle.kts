@@ -16,7 +16,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName =
-            "2026.8.20-EXTENSION_RENDERER_MODE_ON_PREFER-lib-decoder-ffmpeg-release-media3-1.11.0.aar"
+            "2026.8.21-no_reexe"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

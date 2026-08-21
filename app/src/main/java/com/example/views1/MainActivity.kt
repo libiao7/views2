@@ -39,6 +39,8 @@ class MainActivity : AppCompatActivity() {
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
     private var currentUrl: String? = null
     private var currentSubUrl: String? = null
+
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -51,57 +53,6 @@ class MainActivity : AppCompatActivity() {
 
         // 1. 初始化界面逻辑
         playerView = findViewById(R.id.playerView)
-        applyFullScreen()
-        initPlayer(currentExtensionRendererMode)
-
-        // 2. 处理启动意图
-        handleIntent(intent)
-
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-
-        // 必做：更新当前 Activity 的 intent，否则调用 handleIntent(intent) 拿到的还是旧的
-        setIntent(intent)
-
-        // 2. 停止当前正在播放的内容
-//        player.stop()
-//        player.clearMediaItems()
-// 直接调用 handleIntent 即可
-        // 只要 handleIntent 内部使用的是 player.setMediaItem(mediaItem)
-        // 它会自动帮你把旧的 MediaItem 替换掉，不需要额外手动 clear
-        // 3. 处理新的视频数据并开始播放
-        handleIntent(intent)
-    }
-
-    override fun onStop() {
-        super.onStop()
-        player.pause() // 只要用户看不见界面，就强制暂停
-    }
-
-    // 2. 改造 initPlayer 支持传入 extensionRendererMode 参数
-    private fun initPlayer(extensionRendererMode: Int) {
-        // 如果已存在 player 实例，先释放
-        if (::player.isInitialized) {
-            player.release()
-        }
-
-        player = ExoPlayer.Builder(
-            this,
-            DefaultRenderersFactory(this).setExtensionRendererMode(extensionRendererMode)
-        ).setLoadControl(
-            DefaultLoadControl.Builder()
-//                .setBufferDurationsMs(
-//                    128000, // minBufferMs: 至少缓冲多少
-//                    256000, // maxBufferMs: 最多缓冲多少
-//                    1500,  // bufferForPlaybackMs: 起播缓冲
-//                    2000,  // bufferForPlaybackAfterRebufferMs: 卡顿后重新起播缓冲
-//                )
-                .setBackBuffer(12000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
-                .build()
-        ).build()
-        playerView.player = player
         playerView.subtitleView?.setStyle(
             CaptionStyleCompat(
                 0xFF555555.toInt(),              // 字体颜色
@@ -112,144 +63,6 @@ class MainActivity : AppCompatActivity() {
                 null                      // 字体 (null 为系统默认)
             )
         )
-        // 自动旋转逻辑：根据视频宽高比决定横竖屏
-        player.addListener(object : Player.Listener {
-            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                requestedOrientation = if (videoSize.width > videoSize.height) {
-                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                } else {
-                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                }
-            }
-
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                // 1. 获取最详细的错误追踪文本
-                val fullDescription = android.util.Log.getStackTraceString(error)
-
-                // 2. 在控制台打印，方便调试
-                android.util.Log.e("PlayerError", "详细错误内容: $fullDescription")
-
-                // 3. 使用 AlertDialog 弹窗显示详细信息并提供用户选项（类似 confirm）
-                androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
-                    .setTitle("播放发生错误")
-                    .setMessage(fullDescription) // 内容过多时对话框会自动支持上下滚动
-                    .setCancelable(false) // 点击弹窗外部不自动关闭，强制用户做出选择
-                    // 3. 修改 PositiveButton 逻辑：切换模式并重试播放
-                    .setPositiveButton("优先软解重试(PREFER)") { dialog, _ ->
-                        dialog.dismiss()
-
-                        // 修改为优先扩展（软解）模式
-                        currentExtensionRendererMode =
-                            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-                        initPlayer(currentExtensionRendererMode)
-
-                        // 重新播放当前记录的媒体资源
-                        if (currentUrl != null) {
-                            startPlay(currentUrl!!, currentSubUrl)
-                        }
-                    }
-                    .setNeutralButton("复制错误信息") { dialog, _ ->                        // 点击确定按钮：复制到剪贴板
-                        val clipboard =
-                            getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        val clip =
-                            android.content.ClipData.newPlainText("Player Error", fullDescription)
-                        clipboard.setPrimaryClip(clip)
-
-                        android.widget.Toast.makeText(
-                            this@MainActivity,
-                            "已复制到剪贴板",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
-                        dialog.dismiss()
-                    }
-                    .setNegativeButton("关闭") { dialog, _ ->
-                        // 点击取消/关闭按钮：仅关闭弹窗
-                        dialog.dismiss()
-                    }
-                    .show()
-            }
-        })
-
-        setupTouchLogic()
-    }
-
-    private fun handleIntent(intent: Intent?) {
-        val data = intent?.data ?: return
-
-        if (data.scheme == "pauseplayer") {
-            val segments = data.pathSegments
-
-            // 提取加密后的 URL (必选)
-            val encodedUrl = segments.getOrNull(0) ?: return
-            val url = Uri.decode(String(Base64.decode(encodedUrl, Base64.DEFAULT)))
-
-            // 提取加密后的 字幕URL (可选)
-            val subURL = segments.getOrNull(1)?.let {
-                Uri.decode(String(Base64.decode(it, Base64.DEFAULT)))
-            }
-
-            startPlay(url, subURL)
-        } else if (intent?.action == Intent.ACTION_VIEW) {
-            // 处理从文件管理器打开的情况
-            startPlay(data.toString(), null)
-        }
-    }
-
-    private fun startPlay(url: String, subURL: String?) {
-        // 4. 保存当前播放参数，以便重新创建 Player 时重试
-        this.currentUrl = url
-        this.currentSubUrl = subURL
-        val uri = url.toUri()
-
-        // 创建 MediaItem
-        val mediaItemBuilder = MediaItem.Builder().setUri(uri)
-
-        if (subURL != null) {
-            val mimeType = when {
-                subURL.endsWith(".srt", ignoreCase = true) -> "application/x-subrip"
-                subURL.endsWith(".ass", ignoreCase = true) -> "text/x-ssa"
-                else -> "text/plain"
-            }
-            mediaItemBuilder.setSubtitleConfigurations(
-                listOf(
-                    MediaItem.SubtitleConfiguration.Builder(subURL.toUri())
-                        .setMimeType(mimeType)
-                        .setLanguage(mimeType.substringAfterLast('-'))
-                        .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
-                        .build()
-                )
-            )
-        }
-        val mediaItem = mediaItemBuilder.build()
-
-        // 根据 URL 类型选择合适的 DataSource
-        if (uri.scheme?.startsWith("http") == true) {
-            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36")
-                .setAllowCrossProtocolRedirects(true)
-
-            val userInfo = uri.userInfo
-            if (!userInfo.isNullOrEmpty()) {
-                val authHeader =
-                    "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
-                httpDataSourceFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
-            }
-
-            player.setMediaSource(
-                DefaultMediaSourceFactory(httpDataSourceFactory)
-                    .createMediaSource(mediaItem)
-            )
-        } else {
-            // 本地文件或 Content Provider
-            player.setMediaItem(mediaItem)
-        }
-
-        player.prepare()
-        player.play()
-    }
-
-    @SuppressLint("ClickableViewAccessibility") // 加在方法或者类上方
-    private fun setupTouchLogic() {
         playerView.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -321,7 +134,193 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
+
+        applyFullScreen()
+        initPlayer(currentExtensionRendererMode)
+
+        // 2. 处理启动意图
+        handleIntent(intent)
+
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+
+        // 必做：更新当前 Activity 的 intent，否则调用 handleIntent(intent) 拿到的还是旧的
+        setIntent(intent)
+
+        // 2. 停止当前正在播放的内容
+//        player.stop()
+//        player.clearMediaItems()
+// 直接调用 handleIntent 即可
+        // 只要 handleIntent 内部使用的是 player.setMediaItem(mediaItem)
+        // 它会自动帮你把旧的 MediaItem 替换掉，不需要额外手动 clear
+        // 3. 处理新的视频数据并开始播放
+        handleIntent(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        player.pause() // 只要用户看不见界面，就强制暂停
+    }
+
+    // 2. 改造 initPlayer 支持传入 extensionRendererMode 参数
+    private fun initPlayer(extensionRendererMode: Int) {
+        // 如果已存在 player 实例，先释放
+        if (::player.isInitialized) {
+            player.release()
+        }
+
+        player = ExoPlayer.Builder(
+            this,
+            DefaultRenderersFactory(this).setExtensionRendererMode(extensionRendererMode)
+        ).setLoadControl(
+            DefaultLoadControl.Builder()
+//                .setBufferDurationsMs(
+//                    128000, // minBufferMs: 至少缓冲多少
+//                    256000, // maxBufferMs: 最多缓冲多少
+//                    1500,  // bufferForPlaybackMs: 起播缓冲
+//                    2000,  // bufferForPlaybackAfterRebufferMs: 卡顿后重新起播缓冲
+//                )
+                .setBackBuffer(12000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
+                .build()
+        ).build()
+        playerView.player = player
+        // 自动旋转逻辑：根据视频宽高比决定横竖屏
+        player.addListener(object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                requestedOrientation = if (videoSize.width > videoSize.height) {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                } else {
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                // 1. 获取最详细的错误追踪文本
+                val fullDescription = android.util.Log.getStackTraceString(error)
+
+                // 2. 在控制台打印，方便调试
+                android.util.Log.e("PlayerError", "详细错误内容: $fullDescription")
+
+                // 3. 使用 AlertDialog 弹窗显示详细信息并提供用户选项（类似 confirm）
+                androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("播放发生错误")
+                    .setMessage(fullDescription) // 内容过多时对话框会自动支持上下滚动
+                    .setCancelable(false) // 点击弹窗外部不自动关闭，强制用户做出选择
+                    // 3. 修改 PositiveButton 逻辑：切换模式并重试播放
+                    .setPositiveButton("优先软解重试(PREFER)") { dialog, _ ->
+                        dialog.dismiss()
+
+                        // 修改为优先扩展（软解）模式
+                        currentExtensionRendererMode =
+                            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+                        initPlayer(currentExtensionRendererMode)
+
+                        // 重新播放当前记录的媒体资源
+                        if (currentUrl != null) {
+                            startPlay(currentUrl!!, currentSubUrl)
+                        }
+                    }
+                    .setNeutralButton("复制错误信息") { dialog, _ ->                        // 点击确定按钮：复制到剪贴板
+                        val clipboard =
+                            getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val clip =
+                            android.content.ClipData.newPlainText("Player Error", fullDescription)
+                        clipboard.setPrimaryClip(clip)
+
+                        android.widget.Toast.makeText(
+                            this@MainActivity,
+                            "已复制到剪贴板",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton("关闭") { dialog, _ ->
+                        // 点击取消/关闭按钮：仅关闭弹窗
+                        dialog.dismiss()
+                    }
+                    .show()
+            }
+        })
+
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        val data = intent?.data ?: return
+
+        if (data.scheme == "pauseplayer") {
+            val segments = data.pathSegments
+
+            // 提取加密后的 URL (必选)
+            val encodedUrl = segments.getOrNull(0) ?: return
+            val url = Uri.decode(String(Base64.decode(encodedUrl, Base64.DEFAULT)))
+
+            // 提取加密后的 字幕URL (可选)
+            val subURL = segments.getOrNull(1)?.let {
+                Uri.decode(String(Base64.decode(it, Base64.DEFAULT)))
+            }
+
+            startPlay(url, subURL)
+        } else if (intent.action == Intent.ACTION_VIEW) {
+            // 处理从文件管理器打开的情况
+            startPlay(data.toString(), null)
+        }
+    }
+
+    private fun startPlay(url: String, subURL: String?) {
+        // 4. 保存当前播放参数，以便重新创建 Player 时重试
+        this.currentUrl = url
+        this.currentSubUrl = subURL
+        val uri = url.toUri()
+
+        // 创建 MediaItem
+        val mediaItemBuilder = MediaItem.Builder().setUri(uri)
+
+        if (subURL != null) {
+            val mimeType = when {
+                subURL.endsWith(".srt", ignoreCase = true) -> "application/x-subrip"
+                subURL.endsWith(".ass", ignoreCase = true) -> "text/x-ssa"
+                else -> "text/plain"
+            }
+            mediaItemBuilder.setSubtitleConfigurations(
+                listOf(
+                    MediaItem.SubtitleConfiguration.Builder(subURL.toUri())
+                        .setMimeType(mimeType)
+                        .setLanguage(mimeType.substringAfterLast('-'))
+                        .setSelectionFlags(androidx.media3.common.C.SELECTION_FLAG_DEFAULT)
+                        .build()
+                )
+            )
+        }
+        val mediaItem = mediaItemBuilder.build()
+
+        // 根据 URL 类型选择合适的 DataSource
+        if (uri.scheme?.startsWith("http") == true) {
+            val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36")
+                .setAllowCrossProtocolRedirects(true)
+
+            val userInfo = uri.userInfo
+            if (!userInfo.isNullOrEmpty()) {
+                val authHeader =
+                    "Basic " + Base64.encodeToString(userInfo.toByteArray(), Base64.NO_WRAP)
+                httpDataSourceFactory.setDefaultRequestProperties(mapOf("Authorization" to authHeader))
+            }
+
+            player.setMediaSource(
+                DefaultMediaSourceFactory(httpDataSourceFactory)
+                    .createMediaSource(mediaItem)
+            )
+        } else {
+            // 本地文件或 Content Provider
+            player.setMediaItem(mediaItem)
+        }
+
+        player.prepare()
+        player.play()
+    }
+
 
     private fun applyFullScreen() {
         // 针对 Android 16 的沉浸式处理，隐藏三大按键导航栏
