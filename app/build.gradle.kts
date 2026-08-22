@@ -16,7 +16,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName =
-            "2026.8.21-no_reexe"
+            "2026.8.23-try-vlc-7.52"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -49,4 +49,6 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(files("libs/lib-decoder-ffmpeg-release-media3-1.11.0.aar"))
+    // Source: https://mvnrepository.com/artifact/org.videolan.android/libvlc-all
+    implementation("org.videolan.android:libvlc-all:3.7.5")
 }

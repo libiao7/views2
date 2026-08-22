@@ -32,6 +32,18 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var player: ExoPlayer
     private lateinit var playerView: PlayerView
+    private var vlcPlayer: VlcPlayer? = null
+
+    private val currentPlayer: Player
+        get() = vlcPlayer ?: player
+//    private var usingVlc = false
+//    private var surfaceView: SurfaceView? = null
+
+    //    private val vlcListener = object : Player.Listener {
+//        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+//            PlaybackHub.setCurrentIndex(currentPlayer.currentMediaItemIndex)
+//        }
+//    }
     private var startX = 0f
     private var startY = 0f
 
@@ -69,7 +81,7 @@ class MainActivity : AppCompatActivity() {
 //                    playerView.performClick() // 等同于 _.performClick()
                     startX = event.x
                     startY = event.y
-                    player.pause() // 【核心】触碰即暂停
+                    currentPlayer.pause() // 【核心】触碰即暂停
                     true
                 }
 
@@ -92,16 +104,20 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             SeekParameters.CLOSEST_SYNC
                         }
-                        player.setSeekParameters(seekSync)
-                        player.seekTo(player.currentPosition + moveMs)
-                        player.play()
+                        // 安全分发 SeekParameters 给对应的播放器
+                        when (val p = currentPlayer) {
+                            is ExoPlayer -> p.setSeekParameters(seekSync)
+                            is VlcPlayer -> p.setSeekParameters(seekSync)
+                        }
+                        currentPlayer.seekTo(currentPlayer.currentPosition + moveMs)
+                        currentPlayer.play()
                     } else if (absDy > 10 && absDy > absDx) {
                         if (dy > 0) { // 向下滑：倍速还原 + 显示控制栏（保持暂停）
                             window.insetsController?.show(WindowInsets.Type.systemBars())
                             playerView.useController = true
                             playerView.showController()
-                            player.setPlaybackSpeed(1.0f)
-//                            player.play()
+                            currentPlayer.setPlaybackSpeed(1.0f)
+//                            currentPlayer.play()
                         } else if (dy < -200) { // 大幅向上滑：切换ZOOM/FIT
                             playerView.resizeMode =
                                 if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
@@ -111,21 +127,21 @@ class MainActivity : AppCompatActivity() {
                                     playerView.subtitleView?.setPadding(0, 0, 0, 120)
                                     AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                                 }
-                            player.play()
+                            currentPlayer.play()
                             playerView.useController = false
                         } else { // 向上滑：2倍速播放
-                            player.setPlaybackSpeed(player.playbackParameters.speed * 2.0f)
-                            player.play()
+                            currentPlayer.setPlaybackSpeed(currentPlayer.playbackParameters.speed * 2.0f)
+                            currentPlayer.play()
                             playerView.useController = false
                         }
                     } else {
                         // 如果播放器处于初始状态或错误状态，必须重新 prepare
-                        if (player.playbackState == Player.STATE_IDLE) {
-                            player.prepare()
+                        if (currentPlayer.playbackState == Player.STATE_IDLE) {
+                            currentPlayer.prepare()
                         }
                         // 普通松手：继续播放
                         window.insetsController?.hide(WindowInsets.Type.systemBars())
-                        player.play()
+                        currentPlayer.play()
                         playerView.useController = false
                     }
                     true
@@ -209,7 +225,7 @@ class MainActivity : AppCompatActivity() {
                     .setMessage(fullDescription) // 内容过多时对话框会自动支持上下滚动
                     .setCancelable(false) // 点击弹窗外部不自动关闭，强制用户做出选择
                     // 3. 修改 PositiveButton 逻辑：切换模式并重试播放
-                    .setPositiveButton("优先软解重试(PREFER)") { dialog, _ ->
+                    .setPositiveButton("音频ffmpeg") { dialog, _ ->
                         dialog.dismiss()
 
                         // 修改为优先扩展（软解）模式
@@ -222,7 +238,7 @@ class MainActivity : AppCompatActivity() {
                             startPlay(currentUrl!!, currentSubUrl)
                         }
                     }
-                    .setNeutralButton("复制错误信息") { dialog, _ ->                        // 点击确定按钮：复制到剪贴板
+                    .setNeutralButton("复制log") { dialog, _ ->                        // 点击确定按钮：复制到剪贴板
                         val clipboard =
                             getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         val clip =
@@ -236,8 +252,82 @@ class MainActivity : AppCompatActivity() {
                         ).show()
                         dialog.dismiss()
                     }
-                    .setNegativeButton("关闭") { dialog, _ ->
+                    .setNegativeButton("VLC") { dialog, _ ->
                         // 点击取消/关闭按钮：仅关闭弹窗
+                        val items =
+                            (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                        val index = player.currentMediaItemIndex.coerceAtLeast(0)
+                        val position = player.currentPosition.coerceAtLeast(0L)
+
+                        player.stop()
+                        player.clearMediaItems()
+//                        exoControls.detachVideoOutput()
+//                        val view = surfaceView
+//                        if (view != null) {
+//                            player.clearVideoSurfaceView(view)
+//                            (view.parent as? ViewGroup)?.removeView(view)
+//                            surfaceView = null
+//                        }
+                        vlcPlayer?.release()
+                        val vlc = VlcPlayer(this@MainActivity).also { vlcPlayer = it }
+                        playerView.player = vlc
+                        vlc.attachVideoOutput(playerView)
+//                        vlc.addListener(vlcListener)
+                        vlc.setMediaItems(items, index, position)
+//                        vlc.setVideoEnabled(!audioOnly)
+                        vlc.prepare()
+                        vlc.playWhenReady = true
+                        vlc.addListener(object : Player.Listener {
+                            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                                requestedOrientation = if (videoSize.width > videoSize.height) {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                } else {
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                                }
+                            }
+
+                            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                                // 1. 获取最详细的错误追踪文本
+                                val fullDescription = android.util.Log.getStackTraceString(error)
+
+                                // 2. 在控制台打印，方便调试
+                                android.util.Log.e("PlayerError", "详细错误内容: $fullDescription")
+
+                                // 3. 使用 AlertDialog 弹窗显示详细信息并提供用户选项（类似 confirm）
+                                androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                                    .setTitle("VLC播放发生错误")
+                                    .setMessage(fullDescription) // 内容过多时对话框会自动支持上下滚动
+                                    .setCancelable(false) // 点击弹窗外部不自动关闭，强制用户做出选择
+                                    // 3. 修改 PositiveButton 逻辑：切换模式并重试播放
+                                    .setNeutralButton("复制VLC错误信息") { dialog, _ ->                        // 点击确定按钮：复制到剪贴板
+                                        val clipboard =
+                                            getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clip =
+                                            android.content.ClipData.newPlainText(
+                                                "VLCPlayer Error",
+                                                fullDescription
+                                            )
+                                        clipboard.setPrimaryClip(clip)
+
+                                        android.widget.Toast.makeText(
+                                            this@MainActivity,
+                                            "已复制到剪贴板",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                        dialog.dismiss()
+                                    }
+                                    .show()
+                            }
+                        })
+
+//                        usingVlc = true
+//                        mediaSession?.player = vlc
+//                        PlaybackHub.setPlayer(vlc, vlc)
+//                        applyOrder()
+//                        // libVLC no expone sesión de audio: los efectos del sistema no le llegan.
+//                        enhancer.release()
+//                        PlaybackHub.setAudioCapabilities(null)
+
                         dialog.dismiss()
                     }
                     .show()
@@ -340,5 +430,7 @@ class MainActivity : AppCompatActivity() {
         if (::player.isInitialized) {
             player.release()
         }
+        vlcPlayer?.release() // 释放 VLC 资源
+        vlcPlayer = null
     }
 }
