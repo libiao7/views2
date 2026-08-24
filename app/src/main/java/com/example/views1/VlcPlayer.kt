@@ -96,6 +96,18 @@ class VlcPlayer(
 
     private fun onVlcEvent(event: MediaPlayer.Event) {
         when (event.type) {
+//            // https://gemini.google.com/app/39b7d98560f6e177
+//            MediaPlayer.Event.ESAdded -> {
+//                // event.esChangedType == 2 代表 Subtitle/Text 轨道添加
+//                if (event.esChangedType == 2) {
+//                    val spuTracks = mediaPlayer.spuTracks
+//                    if (!spuTracks.isNullOrEmpty()) {
+//                        // 自动选中新解析出来的字幕轨
+//                        mediaPlayer.spuTrack = spuTracks.last().id
+//                    }
+//                }
+//            }
+
             MediaPlayer.Event.Opening -> vlcPlaybackState = STATE_BUFFERING
 
             MediaPlayer.Event.Buffering -> {
@@ -437,13 +449,30 @@ class VlcPlayer(
 
                     // 2. 如果 URI 包含 userInfo（如 http://user:pass@domain.com/video.mp4）
                     val userInfo = uri.userInfo
-                    if (!userInfo.isNullOrEmpty()) {
-                        val authHeader = "Basic " + android.util.Base64.encodeToString(
-                            userInfo.toByteArray(),
-                            android.util.Base64.NO_WRAP
+                    // 不需要Authorization了,支持直接访问http://user:pass@domain.com/video.mp4
+//                    if (!userInfo.isNullOrEmpty()) {
+//                        val authHeader = "Basic " + android.util.Base64.encodeToString(
+//                            userInfo.toByteArray(),
+//                            android.util.Base64.NO_WRAP
+//                        )
+//                        // LibVLC 添加自定义请求头参数格式为 :http-forward-cookies 或通过 :http-header
+//                        addOption(":http-header=Authorization: $authHeader")
+//                    }
+// 【核心修改】：在 Media 对象生成后，直接将字幕装进 Media 中
+                    item.localConfiguration?.subtitleConfigurations?.forEach { subConfig ->
+                        addSlave(
+                            org.videolan.libvlc.interfaces.IMedia.Slave(
+                                org.videolan.libvlc.interfaces.IMedia.Slave.Type.Subtitle,
+                                4, // priority 优先级
+                                if (!uri.userInfo.isNullOrEmpty() && subConfig.uri.userInfo.isNullOrEmpty()) {
+                                    subConfig.uri.toString()
+                                        .replaceFirst("://", "://${uri.userInfo}@")
+                                } else {
+                                    subConfig.uri.toString()
+                                }
+//                                "http://dav:6@192.168.5.61:5678/dav/%E5%8A%A8%E6%BC%AB/%E5%90%88%E9%9B%86%EF%BC%88115%EF%BC%89/W/%E6%88%91%E7%9A%84%E9%9D%92%E6%98%A5%E6%81%8B%E7%88%B1%E7%89%A9%E8%AF%AD%E6%9E%9C%E7%84%B6%E6%9C%89%E9%97%AE%E9%A2%98%E3%80%82%20%282013%29%20%7Btmdb-65676%7D/Season%201/%E6%88%91%E7%9A%84%E9%9D%92%E6%98%A5%E6%81%8B%E7%88%B1%E7%89%A9%E8%AF%AD%E6%9E%9C%E7%84%B6%E6%9C%89%E9%97%AE%E9%A2%98%E3%80%82%20-%20S01E02%20-%20%E7%AC%AC2%E9%9B%86.chs.ass"
+                            )
                         )
-                        // LibVLC 添加自定义请求头参数格式为 :http-forward-cookies 或通过 :http-header
-                        addOption(":http-header=Authorization: $authHeader")
                     }
                 }
             }

@@ -269,6 +269,7 @@ class MainActivity : AppCompatActivity() {
 //                            surfaceView = null
 //                        }
                         vlcPlayer?.release()
+                        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                         val vlc = VlcPlayer(this@MainActivity).also { vlcPlayer = it }
                         playerView.player = vlc
                         vlc.attachVideoOutput(playerView)
@@ -278,14 +279,6 @@ class MainActivity : AppCompatActivity() {
                         vlc.prepare()
                         vlc.playWhenReady = true
                         vlc.addListener(object : Player.Listener {
-                            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                                requestedOrientation = if (videoSize.width > videoSize.height) {
-                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                                } else {
-                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-                                }
-                            }
-
                             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                                 // 1. 获取最详细的错误追踪文本
                                 val fullDescription = android.util.Log.getStackTraceString(error)

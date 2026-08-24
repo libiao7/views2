@@ -14,9 +14,9 @@ android {
         applicationId = "com.example.views1"
         minSdk = 36
         targetSdk = 36
-        versionCode = 1
+        versionCode = 2
         versionName =
-            "2026.8.24-try-vlc-2.04"
+            "2026.8.25-try-vlc-sub-LANDSCAPE-3.39"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,6 +48,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            isDebuggable = true
         }
     }
     compileOptions {
