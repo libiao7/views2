@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
+import org.videolan.libvlc.MediaPlayer
 import kotlin.math.abs
 import kotlin.math.sign
 
@@ -119,14 +120,24 @@ class MainActivity : AppCompatActivity() {
                             currentPlayer.setPlaybackSpeed(1.0f)
 //                            currentPlayer.play()
                         } else if (dy < -200) { // 大幅向上滑：切换ZOOM/FIT
-                            playerView.resizeMode =
-                                if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
-                                    playerView.subtitleView?.setPadding(0, 0, 0, 0)
-                                    AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                } else {
-                                    playerView.subtitleView?.setPadding(0, 0, 0, 120)
-                                    AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                }
+                            val valPlayer = currentPlayer
+                            if (valPlayer is ExoPlayer) {
+                                playerView.resizeMode =
+                                    if (playerView.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
+                                        playerView.subtitleView?.setPadding(0, 0, 0, 0)
+                                        AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    } else {
+                                        playerView.subtitleView?.setPadding(0, 0, 0, 120)
+                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    }
+                            } else if (valPlayer is VlcPlayer) {
+                                valPlayer.setVideoScale(
+                                    if (valPlayer.getVideoScale() == MediaPlayer.ScaleType.SURFACE_BEST_FIT)
+                                        MediaPlayer.ScaleType.SURFACE_FIT_SCREEN
+                                    else
+                                        MediaPlayer.ScaleType.SURFACE_BEST_FIT
+                                )
+                            }
                             currentPlayer.play()
                             playerView.useController = false
                         } else { // 向上滑：2倍速播放

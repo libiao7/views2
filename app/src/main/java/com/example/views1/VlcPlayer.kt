@@ -332,6 +332,7 @@ class VlcPlayer(
         return Futures.immediateVoidFuture()
     }
 
+    @Deprecated("Deprecated in Java")
     override fun handleSetVolume(volume: Float): ListenableFuture<*> {
         currentVolume = volume.coerceIn(0f, 1f)
         mediaPlayer.volume = (currentVolume * 100).toInt()
@@ -448,7 +449,7 @@ class VlcPlayer(
                     addOption(":http-user-agent=Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36")
 
                     // 2. 如果 URI 包含 userInfo（如 http://user:pass@domain.com/video.mp4）
-                    val userInfo = uri.userInfo
+//                    val userInfo = uri.userInfo
                     // 不需要Authorization了,支持直接访问http://user:pass@domain.com/video.mp4
 //                    if (!userInfo.isNullOrEmpty()) {
 //                        val authHeader = "Basic " + android.util.Base64.encodeToString(
@@ -538,26 +539,26 @@ class VlcPlayer(
 //                    selected = track.id == mediaPlayer.spuTrack
 //                )
 //            }
-
-    fun selectAudioTrack(id: String) {
-        id.toIntOrNull()?.let { mediaPlayer.audioTrack = it }
-    }
-
-    fun selectSubtitleTrack(id: String?) {
-        mediaPlayer.spuTrack = id?.toIntOrNull() ?: -1
-    }
-
-    val isVideoEnabled: Boolean get() = videoEnabled
-
-    fun setVideoEnabled(enabled: Boolean) {
-        if (videoEnabled == enabled) return
-        videoEnabled = enabled
-        mediaPlayer.setVideoTrackEnabled(enabled)
-        if (!enabled) {
-            detachVideoOutput()
-        }
-        invalidateState()
-    }
+/////////////////////////// Never Used ///////////////////////////
+//    fun selectAudioTrack(id: String) {
+//        id.toIntOrNull()?.let { mediaPlayer.audioTrack = it }
+//    }
+//
+//    fun selectSubtitleTrack(id: String?) {
+//        mediaPlayer.spuTrack = id?.toIntOrNull() ?: -1
+//    }
+//
+//    val isVideoEnabled: Boolean get() = videoEnabled
+//
+//    fun setVideoEnabled(enabled: Boolean) {
+//        if (videoEnabled == enabled) return
+//        videoEnabled = enabled
+//        mediaPlayer.setVideoTrackEnabled(enabled)
+//        if (!enabled) {
+//            detachVideoOutput()
+//        }
+//        invalidateState()
+//    }
 
     fun attachVideoOutput(container: FrameLayout) {
         if (!videoEnabled) return
@@ -581,13 +582,13 @@ class VlcPlayer(
         videoLayout = null
     }
 
-    fun addExternalSubtitle(uri: String) {
-        mediaPlayer.addSlave(
-            org.videolan.libvlc.interfaces.IMedia.Slave.Type.Subtitle,
-            Uri.parse(uri),
-            true
-        )
-    }
+//    fun addExternalSubtitle(uri: String) {
+//        mediaPlayer.addSlave(
+//            org.videolan.libvlc.interfaces.IMedia.Slave.Type.Subtitle,
+//            Uri.parse(uri),
+//            true
+//        )
+//    }
 
     private companion object {
         val AVAILABLE_COMMANDS: Player.Commands = Player.Commands.Builder()
@@ -617,5 +618,15 @@ class VlcPlayer(
                 COMMAND_RELEASE
             )
             .build()
+    }
+
+
+    ////////////////////// Ultra DIY //////////////////////
+    fun setVideoScale(type: MediaPlayer.ScaleType) {
+        mediaPlayer.videoScale = type
+    }
+
+    fun getVideoScale(): MediaPlayer.ScaleType {
+        return mediaPlayer.videoScale
     }
 }
