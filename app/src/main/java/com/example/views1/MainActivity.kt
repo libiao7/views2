@@ -186,10 +186,22 @@ class MainActivity : AppCompatActivity() {
         handleIntent(intent)
     }
 
-    override fun onStop() {
-        super.onStop()
-        player.pause() // 只要用户看不见界面，就强制暂停
+    override fun onResume() {
+        super.onResume()
+        vlcPlayer?.attachVideoOutput(playerView)
     }
+
+    override fun onPause() {
+        super.onPause()
+        vlcPlayer?.detachVideoOutput()
+//        currentPlayer.pause()
+    }
+
+//    override fun onStop() {
+//        super.onStop()
+//        vlcPlayer?.detachVideoOutput()
+//        currentPlayer.pause() // 只要用户看不见界面，就强制暂停
+//    }
 
     // 2. 改造 initPlayer 支持传入 extensionRendererMode 参数
     private fun initPlayer(extensionRendererMode: Int) {

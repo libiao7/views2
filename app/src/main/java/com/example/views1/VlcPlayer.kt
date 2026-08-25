@@ -84,7 +84,7 @@ class VlcPlayer(
     private var order: List<Int> = emptyList()
 
     private var videoLayout: VLCVideoLayout? = null
-    private var videoEnabled: Boolean = true
+//    private var videoEnabled: Boolean = true
 
 //    override val engineName: String = "VLC"
 
@@ -486,7 +486,7 @@ class VlcPlayer(
             // VLC aplica :start-time en segundos con decimales.
             media.addOption(":start-time=${startPositionMs / 1000.0}")
         }
-        if (!videoEnabled) media.addOption(":no-video")
+//        if (!videoEnabled) media.addOption(":no-video")
 
         mediaPlayer.media = media
         media.release()
@@ -497,7 +497,7 @@ class VlcPlayer(
         vlcPlaybackState = STATE_BUFFERING
 
         mediaPlayer.rate = speed
-        mediaPlayer.setVideoTrackEnabled(videoEnabled)
+//        mediaPlayer.setVideoTrackEnabled(videoEnabled)
         if (play) mediaPlayer.play()
         invalidateState()
     }
@@ -561,7 +561,7 @@ class VlcPlayer(
 //    }
 
     fun attachVideoOutput(container: FrameLayout) {
-        if (!videoEnabled) return
+//        if (!videoEnabled) return
         detachVideoOutput()
         val layout = VLCVideoLayout(context).also { videoLayout = it }
         container.addView(

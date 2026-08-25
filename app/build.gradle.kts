@@ -16,7 +16,7 @@ android {
         targetSdk = 36
         versionCode = 2
         versionName =
-            "2026.8.25-try-vlc-sub-LANDSCAPE-SURFACE_FIT_SCREEN-23.37-beauty"
+            "2026.8.26-try-vlc-sub-LANDSCAPE-SURFACE_FIT_SCREEN-vlc_onResume-7.55"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
