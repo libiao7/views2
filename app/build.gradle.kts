@@ -15,8 +15,7 @@ android {
         minSdk = 36
         targetSdk = 36
         versionCode = 2
-        versionName =
-            "2026.8.27-LibVLC-onlyuse--no-bluray-menu"
+        versionName = "2026.9.17.1-Player.STATE_ENDED"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

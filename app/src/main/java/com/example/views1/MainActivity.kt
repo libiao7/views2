@@ -235,6 +235,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    window.insetsController?.show(WindowInsets.Type.systemBars())
+                    playerView.useController = true
+                    playerView.showController()
+//                    currentPlayer.setPlaybackSpeed(1.0f)
+                }
+            }
+
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 // 1. 获取最详细的错误追踪文本
                 val fullDescription = android.util.Log.getStackTraceString(error)
