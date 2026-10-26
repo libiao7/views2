@@ -30,7 +30,11 @@ import androidx.media3.ui.PlayerView
 import org.videolan.libvlc.MediaPlayer
 import kotlin.math.abs
 import kotlin.math.sign
-
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import kotlin.math.PI
 class MainActivity : AppCompatActivity() {
 
     private lateinit var player: ExoPlayer
@@ -64,7 +68,78 @@ class MainActivity : AppCompatActivity() {
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
     private var currentUrl: String? = null
     private var currentSubUrl: String? = null
+    private lateinit var sensorManager: SensorManager
+    private var rotationSensor: Sensor? = null
 
+    private var gyroReferenceYaw: Float? = null
+    private var gyroReferencePitch: Float? = null
+    private val rotationSensorListener = object : SensorEventListener {
+
+        private val rotationMatrix = FloatArray(9)
+        private val orientation = FloatArray(3)
+
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type != Sensor.TYPE_GAME_ROTATION_VECTOR) {
+                return
+            }
+
+            // 只在 VR180 模式下更新视角。
+            if (!isVr180Mode) return
+
+            SensorManager.getRotationMatrixFromVector(
+                rotationMatrix,
+                event.values
+            )
+
+            SensorManager.getOrientation(
+                rotationMatrix,
+                orientation
+            )
+
+            val yaw = orientation[0]
+            val pitch = orientation[1]
+
+            // 第一次收到传感器数据时，记录初始朝向。
+            if (gyroReferenceYaw == null || gyroReferencePitch == null) {
+                gyroReferenceYaw = yaw
+                gyroReferencePitch = pitch
+                vr180View.setGyroView(0f, 0f)
+                return
+            }
+
+            // 计算相对于初始朝向的角度差。
+            val yawDelta = normalizeAngle(
+                yaw - gyroReferenceYaw!!
+            )
+            val pitchDelta = pitch - gyroReferencePitch!!
+
+            vr180View.setGyroView(
+                Math.toDegrees(yawDelta.toDouble()).toFloat(),
+                Math.toDegrees(pitchDelta.toDouble()).toFloat()
+            )
+        }
+
+        override fun onAccuracyChanged(
+            sensor: Sensor?,
+            accuracy: Int
+        ) {
+            // 无需处理。
+        }
+    }
+
+    private fun normalizeAngle(angle: Float): Float {
+        var result = angle
+
+        while (result > PI.toFloat()) {
+            result -= (2.0 * PI).toFloat()
+        }
+
+        while (result < -PI.toFloat()) {
+            result += (2.0 * PI).toFloat()
+        }
+
+        return result
+    }
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -75,7 +150,13 @@ class MainActivity : AppCompatActivity() {
 //            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
 //            insets
 //        }
+        sensorManager =
+            getSystemService(SENSOR_SERVICE) as SensorManager
 
+        rotationSensor =
+            sensorManager.getDefaultSensor(
+                Sensor.TYPE_GAME_ROTATION_VECTOR
+            )
         // 1. 初始化界面逻辑
         playerView = findViewById(R.id.playerView)
         vr180View = findViewById(R.id.vr180View)
@@ -122,31 +203,19 @@ class MainActivity : AppCompatActivity() {
                         vr180MultiTouch = true
 
                         val distance = pointerDistance(event)
-                        val midX = (event.getX(0) + event.getX(1)) / 2f
-                        val midY = (event.getY(0) + event.getY(1)) / 2f
 
                         if (vr180PreviousDistance > 0f && distance > 0f) {
                             val scaleFactor = distance / vr180PreviousDistance
 
                             // 双指间距变化：缩放
                             vr180View.adjustZoom(scaleFactor)
-
-                            // 双指中点位移：移动视角
-                            val dx = midX - vr180PreviousMidX
-                            val dy = midY - vr180PreviousMidY
-
-                            val yawDelta = -dx / density * 0.25f
-                            val pitchDelta = dy / density * 0.25f
-
-                            vr180View.adjustView(yawDelta, pitchDelta)
                         }
 
                         vr180PreviousDistance = distance
-                        vr180PreviousMidX = midX
-                        vr180PreviousMidY = midY
                     }
                     true
                 }
+
 
                 MotionEvent.ACTION_POINTER_UP -> {
                     // 双指操作期间不执行单指快进/快退。
@@ -313,9 +382,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+
         if (::vr180View.isInitialized) {
             vr180View.onResume()
         }
+
+        if (rotationSensor != null) {
+            sensorManager.registerListener(
+                rotationSensorListener,
+                rotationSensor,
+                SensorManager.SENSOR_DELAY_GAME
+            )
+        }
+
         vlcPlayer?.attachVideoOutput(playerView)
     }
 
@@ -323,9 +402,11 @@ class MainActivity : AppCompatActivity() {
         if (::vr180View.isInitialized) {
             vr180View.onPause()
         }
+
+        sensorManager.unregisterListener(rotationSensorListener)
+
         super.onPause()
         vlcPlayer?.detachVideoOutput()
-//        currentPlayer.pause()
     }
 
 //    override fun onStop() {
@@ -549,6 +630,13 @@ class MainActivity : AppCompatActivity() {
         // 仅按文件名判断是否进入 VR180，忽略大小写。
         val fileName = Uri.decode(uri.lastPathSegment.orEmpty())
         val shouldUseVr180 = fileName.contains("vr", ignoreCase = true)
+
+        if (shouldUseVr180) {
+            // 下一个 VR180 视频首次收到传感器数据时，
+            // 将当时的手机朝向设为初始视角。
+            gyroReferenceYaw = null
+            gyroReferencePitch = null
+        }
 
         isVr180Mode = shouldUseVr180
         pendingVr180Mode = shouldUseVr180

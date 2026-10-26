@@ -59,13 +59,11 @@ class Vr180SbsGlSurfaceView(
     }
 
     /**
-     * Adjust the viewing direction.
-     * Positive yaw moves the view horizontally.
-     * Positive pitch moves the view vertically.
+     * 设置陀螺仪计算出的相对视角。
      */
-    fun adjustView(yawDelta: Float, pitchDelta: Float) {
+    fun setGyroView(yawDegrees: Float, pitchDegrees: Float) {
         queueEvent {
-            vrRenderer.adjustView(yawDelta, pitchDelta)
+            vrRenderer.setGyroView(yawDegrees, pitchDegrees)
             requestRender()
         }
     }
@@ -305,10 +303,12 @@ class Vr180SbsGlSurfaceView(
             GLES20.glDisableVertexAttribArray(positionHandle)
         }
 
-        fun adjustView(yawDelta: Float, pitchDelta: Float) {
-            yawDegrees = (yawDegrees + yawDelta).coerceIn(-85f, 85f)
-            pitchDegrees =
-                (pitchDegrees + pitchDelta).coerceIn(-80f, 80f)
+        fun setGyroView(yaw: Float, pitch: Float) {
+            // 水平方向允许连续旋转。
+            yawDegrees = yaw
+
+            // 限制垂直方向，避免视角翻转。
+            pitchDegrees = pitch.coerceIn(-80f, 80f)
         }
 
         fun adjustZoom(scaleFactor: Float) {
