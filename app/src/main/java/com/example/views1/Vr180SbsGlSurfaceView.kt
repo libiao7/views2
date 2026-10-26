@@ -57,7 +57,14 @@ class Vr180SbsGlSurfaceView(
         super.onResume()
         requestRender()
     }
-
+    /**
+     * 使用传感器提供的当前姿态角控制视角。
+     * 不需要初始视角校准。
+     */
+    fun setGyroView(yawDegrees: Float, pitchDegrees: Float) {
+        vrRenderer.setGyroView(yawDegrees, pitchDegrees)
+        requestRender()
+    }
     /**
      * Adjust the viewing direction.
      * Positive yaw moves the view horizontally.
@@ -140,7 +147,15 @@ class Vr180SbsGlSurfaceView(
                 )
                 position(0)
             }
+        @Volatile
+        private var pendingYawDegrees = 0f
 
+        @Volatile
+        private var pendingPitchDegrees = 0f
+        fun setGyroView(yaw: Float, pitch: Float) {
+            pendingYawDegrees = yaw
+            pendingPitchDegrees = pitch.coerceIn(-80f, 80f)
+        }
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             GLES20.glClearColor(0f, 0f, 0f, 1f)
 
@@ -240,7 +255,8 @@ class Vr180SbsGlSurfaceView(
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
             if (program == 0 || textureId == 0) return
-
+            yawDegrees = pendingYawDegrees
+            pitchDegrees = pendingPitchDegrees
             GLES20.glUseProgram(program)
 
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)

@@ -30,7 +30,12 @@ import androidx.media3.ui.PlayerView
 import org.videolan.libvlc.MediaPlayer
 import kotlin.math.abs
 import kotlin.math.sign
-
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import kotlin.math.asin
+import kotlin.math.atan2
 class MainActivity : AppCompatActivity() {
 
     private lateinit var player: ExoPlayer
@@ -64,7 +69,65 @@ class MainActivity : AppCompatActivity() {
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
     private var currentUrl: String? = null
     private var currentSubUrl: String? = null
+    private lateinit var sensorManager: SensorManager
+    private var rotationVectorSensor: Sensor? = null
 
+    private val rotationMatrix = FloatArray(9)
+    private val remappedRotationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
+
+    private val gyroListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+            if (!::vr180View.isInitialized || !isVr180Mode) return
+
+            SensorManager.getRotationMatrixFromVector(
+                rotationMatrix,
+                event.values
+            )
+
+            // 根据屏幕方向，将传感器坐标转换为屏幕坐标。
+            val (axisX, axisY) = when (display.rotation) {
+                Surface.ROTATION_90 ->
+                    SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+
+                Surface.ROTATION_180 ->
+                    SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+
+                Surface.ROTATION_270 ->
+                    SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+
+                else ->
+                    SensorManager.AXIS_X to SensorManager.AXIS_Y
+            }
+
+            val remapped = SensorManager.remapCoordinateSystem(
+                rotationMatrix,
+                axisX,
+                axisY,
+                remappedRotationMatrix
+            )
+
+            if (!remapped) return
+
+            SensorManager.getOrientation(
+                remappedRotationMatrix,
+                orientationAngles
+            )
+
+            val yaw = Math.toDegrees(
+                orientationAngles[0].toDouble()
+            ).toFloat()
+
+            val pitch = Math.toDegrees(
+                orientationAngles[1].toDouble()
+            ).toFloat()
+
+            vr180View.setGyroView(yaw, pitch)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,7 +142,11 @@ class MainActivity : AppCompatActivity() {
         // 1. 初始化界面逻辑
         playerView = findViewById(R.id.playerView)
         vr180View = findViewById(R.id.vr180View)
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
+        rotationVectorSensor = sensorManager.getDefaultSensor(
+            Sensor.TYPE_ROTATION_VECTOR
+        )
         vr180View.onVideoSurfaceAvailable = { surface ->
             vr180Surface = surface
 
@@ -131,14 +198,6 @@ class MainActivity : AppCompatActivity() {
                             // 双指间距变化：缩放
                             vr180View.adjustZoom(scaleFactor)
 
-                            // 双指中点位移：移动视角
-                            val dx = midX - vr180PreviousMidX
-                            val dy = midY - vr180PreviousMidY
-
-                            val yawDelta = -dx / density * 0.25f
-                            val pitchDelta = dy / density * 0.25f
-
-                            vr180View.adjustView(yawDelta, pitchDelta)
                         }
 
                         vr180PreviousDistance = distance
@@ -313,9 +372,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+
         if (::vr180View.isInitialized) {
             vr180View.onResume()
         }
+
+        rotationVectorSensor?.let {
+            sensorManager.registerListener(
+                gyroListener,
+                it,
+                SensorManager.SENSOR_DELAY_GAME
+            )
+        }
+
         vlcPlayer?.attachVideoOutput(playerView)
     }
 
@@ -323,9 +392,13 @@ class MainActivity : AppCompatActivity() {
         if (::vr180View.isInitialized) {
             vr180View.onPause()
         }
+
+        if (::sensorManager.isInitialized) {
+            sensorManager.unregisterListener(gyroListener)
+        }
+
         super.onPause()
         vlcPlayer?.detachVideoOutput()
-//        currentPlayer.pause()
     }
 
 //    override fun onStop() {
