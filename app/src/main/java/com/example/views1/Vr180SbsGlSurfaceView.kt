@@ -1,5 +1,6 @@
 package com.example.views1
 
+import android.util.AttributeSet
 import android.content.Context
 import android.graphics.SurfaceTexture
 import android.opengl.GLES11Ext
@@ -25,7 +26,10 @@ import kotlin.math.tan
  * Connect [onVideoSurfaceAvailable] to ExoPlayer.setVideoSurface(). The caller must
  * clear the player's video surface before releasing this view.
  */
-class Vr180SbsGlSurfaceView(context: Context) : GLSurfaceView(context) {
+class Vr180SbsGlSurfaceView(
+    context: Context,
+    attrs: AttributeSet? = null
+) : GLSurfaceView(context, attrs) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val vrRenderer: Vr180Renderer

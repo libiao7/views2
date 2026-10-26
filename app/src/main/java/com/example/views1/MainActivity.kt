@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var vr180Surface: Surface? = null
     private var isVr180Mode = false
     private var vlcPlayer: VlcPlayer? = null
+    private var pendingVr180Mode = false
 
     private val currentPlayer: Player
         get() = vlcPlayer ?: player
@@ -76,7 +77,11 @@ class MainActivity : AppCompatActivity() {
         vr180Toggle = findViewById(R.id.vr180Toggle)
         vr180View.onVideoSurfaceAvailable = { surface ->
             vr180Surface = surface
-            if (isVr180Mode && ::player.isInitialized) {
+
+            if (pendingVr180Mode && surface.isValid) {
+                pendingVr180Mode = false
+                enableVr180Mode(surface)
+            } else if (isVr180Mode && ::player.isInitialized) {
                 playerView.player = null
                 player.setVideoSurface(surface)
             }
@@ -84,21 +89,22 @@ class MainActivity : AppCompatActivity() {
         vr180Toggle.setOnClickListener {
             if (!isVr180Mode) {
                 val surface = vr180Surface
-                if (surface == null || !surface.isValid) {
-                    android.widget.Toast.makeText(this, "VR180 渲染器尚未就绪，请稍后再试", android.widget.Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
+
+                if (surface != null && surface.isValid) {
+                    enableVr180Mode(surface)
+                } else {
+                    // 先显示 GLSurfaceView，让它有机会初始化 OpenGL。
+                    pendingVr180Mode = true
+                    vr180View.visibility = View.VISIBLE
+                    vr180View.requestRender()
                 }
-                isVr180Mode = true
-                playerView.player = null
-                player.setVideoSurface(surface)
-                playerView.visibility = View.GONE
-                vr180View.visibility = View.VISIBLE
-                vr180Toggle.text = "普通"
-                vr180View.requestRender()
             } else {
+                pendingVr180Mode = false
                 isVr180Mode = false
+
                 player.setVideoSurface(null)
                 playerView.player = player
+
                 vr180View.visibility = View.GONE
                 playerView.visibility = View.VISIBLE
                 vr180Toggle.text = "VR180"
@@ -451,7 +457,21 @@ class MainActivity : AppCompatActivity() {
             startPlay(data.toString(), null)
         }
     }
+    private fun enableVr180Mode(surface: Surface) {
+        if (!surface.isValid) return
 
+        pendingVr180Mode = false
+        isVr180Mode = true
+
+        playerView.player = null
+        player.setVideoSurface(surface)
+
+        playerView.visibility = View.GONE
+        vr180View.visibility = View.VISIBLE
+        vr180Toggle.text = "普通"
+
+        vr180View.requestRender()
+    }
     private fun startPlay(url: String, subURL: String?) {
         // 4. 保存当前播放参数，以便重新创建 Player 时重试
         this.currentUrl = url
