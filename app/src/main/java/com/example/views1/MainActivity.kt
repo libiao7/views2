@@ -34,7 +34,6 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import kotlin.math.PI
 class MainActivity : AppCompatActivity() {
 
     private lateinit var player: ExoPlayer
@@ -71,74 +70,72 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
 
-    private var gyroReferenceYaw: Float? = null
-    private var gyroReferencePitch: Float? = null
-    private val rotationSensorListener = object : SensorEventListener {
+    private var gyroReferenceMatrix: FloatArray? = null
 
-        private val rotationMatrix = FloatArray(9)
-        private val orientation = FloatArray(3)
+    private val rotationSensorListener = object : SensorEventListener {
+        private val rawRotationMatrix = FloatArray(9)
+        private val screenRotationMatrix = FloatArray(9)
+        private val relativeRotationMatrix = FloatArray(9)
 
         override fun onSensorChanged(event: SensorEvent) {
-            if (event.sensor.type != Sensor.TYPE_GAME_ROTATION_VECTOR) {
-                return
-            }
-
-            // 只在 VR180 模式下更新视角。
+            if (event.sensor.type != Sensor.TYPE_GAME_ROTATION_VECTOR) return
             if (!isVr180Mode) return
 
             SensorManager.getRotationMatrixFromVector(
-                rotationMatrix,
+                rawRotationMatrix,
                 event.values
             )
 
-            SensorManager.getOrientation(
-                rotationMatrix,
-                orientation
-            )
+            // 将传感器坐标轴映射到当前屏幕方向，避免横屏时上下轴错位。
+            val (axisX, axisY) = when (windowManager.defaultDisplay.rotation) {
+                Surface.ROTATION_90 ->
+                    SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+                Surface.ROTATION_180 ->
+                    SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+                Surface.ROTATION_270 ->
+                    SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+                else ->
+                    SensorManager.AXIS_X to SensorManager.AXIS_Y
+            }
 
-            val yaw = orientation[0]
-            val pitch = orientation[1]
+            if (!SensorManager.remapCoordinateSystem(
+                    rawRotationMatrix,
+                    axisX,
+                    axisY,
+                    screenRotationMatrix
+                )
+            ) return
 
-            // 第一次收到传感器数据时，记录初始朝向。
-            if (gyroReferenceYaw == null || gyroReferencePitch == null) {
-                gyroReferenceYaw = yaw
-                gyroReferencePitch = pitch
-                vr180View.setGyroView(0f, 0f)
+            val reference = gyroReferenceMatrix
+            if (reference == null) {
+                gyroReferenceMatrix = screenRotationMatrix.copyOf()
+                vr180View.setGyroRotationMatrix(
+                    floatArrayOf(
+                        1f, 0f, 0f,
+                        0f, 1f, 0f,
+                        0f, 0f, 1f
+                    )
+                )
                 return
             }
 
-            // 计算相对于初始朝向的角度差。
-            val yawDelta = normalizeAngle(
-                yaw - gyroReferenceYaw!!
-            )
-            val pitchDelta = pitch - gyroReferencePitch!!
+            // relative = transpose(reference) * current。
+            // Android 输入矩阵按行排列；这里转为 OpenGL mat3 所需的列主序。
+            for (row in 0..2) {
+                for (col in 0..2) {
+                    var sum = 0f
+                    for (k in 0..2) {
+                        sum += reference[k * 3 + row] *
+                            screenRotationMatrix[k * 3 + col]
+                    }
+                    relativeRotationMatrix[col * 3 + row] = sum
+                }
+            }
 
-            vr180View.setGyroView(
-                Math.toDegrees(yawDelta.toDouble()).toFloat(),
-                Math.toDegrees(pitchDelta.toDouble()).toFloat()
-            )
+            vr180View.setGyroRotationMatrix(relativeRotationMatrix.copyOf())
         }
 
-        override fun onAccuracyChanged(
-            sensor: Sensor?,
-            accuracy: Int
-        ) {
-            // 无需处理。
-        }
-    }
-
-    private fun normalizeAngle(angle: Float): Float {
-        var result = angle
-
-        while (result > PI.toFloat()) {
-            result -= (2.0 * PI).toFloat()
-        }
-
-        while (result < -PI.toFloat()) {
-            result += (2.0 * PI).toFloat()
-        }
-
-        return result
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
     }
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -634,8 +631,7 @@ class MainActivity : AppCompatActivity() {
         if (shouldUseVr180) {
             // 下一个 VR180 视频首次收到传感器数据时，
             // 将当时的手机朝向设为初始视角。
-            gyroReferenceYaw = null
-            gyroReferencePitch = null
+            gyroReferenceMatrix = null
         }
 
         isVr180Mode = shouldUseVr180
