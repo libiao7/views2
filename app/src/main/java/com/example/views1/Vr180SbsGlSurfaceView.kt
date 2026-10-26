@@ -59,11 +59,13 @@ class Vr180SbsGlSurfaceView(
     }
 
     /**
-     * 设置陀螺仪计算出的相对视角。
+     * 设置相对于进入 VR180 模式时初始姿态的旋转矩阵。
      */
-    fun setGyroView(yawDegrees: Float, pitchDegrees: Float) {
+    fun setGyroRotationMatrix(matrix: FloatArray) {
+        if (matrix.size != 9) return
+        val copy = matrix.copyOf()
         queueEvent {
-            vrRenderer.setGyroView(yawDegrees, pitchDegrees)
+            vrRenderer.setGyroRotationMatrix(copy)
             requestRender()
         }
     }
@@ -99,13 +101,15 @@ class Vr180SbsGlSurfaceView(
         private var textureId = 0
 
         // Shader uniform handles.
-        private var yawHandle = 0
-        private var pitchHandle = 0
+        private var gyroRotationHandle = 0
 
         // User-adjustable viewing parameters.
         private var fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
-        private var yawDegrees = 0f
-        private var pitchDegrees = 0f
+        private val gyroRotationMatrix = floatArrayOf(
+            1f, 0f, 0f,
+            0f, 1f, 0f,
+            0f, 0f, 1f
+        )
 
         private var surfaceTexture: SurfaceTexture? = null
         private var decoderSurface: Surface? = null
@@ -151,8 +155,8 @@ class Vr180SbsGlSurfaceView(
                 GLES20.glGetUniformLocation(program, "uTanHalfFovY")
             aspectHandle = GLES20.glGetUniformLocation(program, "uAspect")
             samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
-            yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
-            pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
+            gyroRotationHandle =
+                GLES20.glGetUniformLocation(program, "uGyroRotation")
 
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
@@ -275,8 +279,13 @@ class Vr180SbsGlSurfaceView(
                 Math.toRadians(fovDegrees.toDouble() / 2.0)
             ).toFloat()
 
-            GLES20.glUniform1f(yawHandle, yawDegrees)
-            GLES20.glUniform1f(pitchHandle, pitchDegrees)
+            GLES20.glUniformMatrix3fv(
+                gyroRotationHandle,
+                1,
+                false,
+                gyroRotationMatrix,
+                0
+            )
 
             for (eye in 0..1) {
                 GLES20.glViewport(
@@ -303,12 +312,10 @@ class Vr180SbsGlSurfaceView(
             GLES20.glDisableVertexAttribArray(positionHandle)
         }
 
-        fun setGyroView(yaw: Float, pitch: Float) {
-            // 水平方向允许连续旋转。
-            yawDegrees = yaw
-
-            // 限制垂直方向，避免视角翻转。
-            pitchDegrees = pitch.coerceIn(-80f, 80f)
+        fun setGyroRotationMatrix(matrix: FloatArray) {
+            if (matrix.size == 9) {
+                matrix.copyInto(gyroRotationMatrix)
+            }
         }
 
         fun adjustZoom(scaleFactor: Float) {
@@ -432,8 +439,7 @@ class Vr180SbsGlSurfaceView(
                 uniform float uEye;
                 uniform float uTanHalfFovY;
                 uniform float uAspect;
-                uniform float uYaw;
-                uniform float uPitch;
+                uniform mat3 uGyroRotation;
 
                 varying vec2 vScreen;
 
@@ -447,26 +453,8 @@ class Vr180SbsGlSurfaceView(
                         -1.0
                     ));
 
-                    // Rotate the view ray horizontally and vertically.
-                    float yaw = radians(uYaw);
-                    float pitch = radians(uPitch);
-
-                    float cy = cos(yaw);
-                    float sy = sin(yaw);
-                    float cp = cos(pitch);
-                    float sp = sin(pitch);
-
-                    vec3 yawRay = vec3(
-                        cy * ray.x + sy * ray.z,
-                        ray.y,
-                        -sy * ray.x + cy * ray.z
-                    );
-
-                    vec3 viewRay = vec3(
-                        yawRay.x,
-                        cp * yawRay.y - sp * yawRay.z,
-                        sp * yawRay.y + cp * yawRay.z
-                    );
+                    // Apply the complete relative device rotation to the camera ray.
+                    vec3 viewRay = normalize(uGyroRotation * ray);
 
                     float longitude = atan(viewRay.x, -viewRay.z);
                     float latitude = asin(
@@ -484,7 +472,8 @@ class Vr180SbsGlSurfaceView(
                     ).xy;
 
                     // Pixels outside the forward 180-degree hemisphere are black.
-                    if (abs(longitude) > PI * 0.5) {
+                    if (abs(longitude) > PI * 0.5 &&
+                        abs(viewRay.y) < 0.9999) {
                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                     } else {
                         gl_FragColor = texture2D(uVideo, uv);
