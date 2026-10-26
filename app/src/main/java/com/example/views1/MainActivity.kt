@@ -288,7 +288,12 @@ class MainActivity : AppCompatActivity() {
                 .setBackBuffer(12000, true) // 核心代码：保留过去 多少毫秒的数据在内存中，不立即丢弃
                 .build()
         ).build()
-        playerView.player = player
+        if (isVr180Mode && vr180Surface?.isValid == true) {
+            playerView.player = null
+            player.setVideoSurface(vr180Surface)
+        } else {
+            playerView.player = player
+        }
         // 自动旋转逻辑：根据视频宽高比决定横竖屏
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
