@@ -516,17 +516,21 @@ class MainActivity : AppCompatActivity() {
 
     // 释放资源
     override fun onDestroy() {
-        super.onDestroy()
+        // 先解除 ExoPlayer 对解码 Surface 的引用，再释放播放器和 GL 资源。
+        if (::player.isInitialized) {
+            player.clearVideoSurface()
+        }
+        if (::vr180View.isInitialized) {
+            vr180View.onVideoSurfaceAvailable = null
+            vr180View.releaseRenderer()
+        }
+        vr180Surface = null
+
         if (::player.isInitialized) {
             player.release()
         }
-        if (::player.isInitialized) {
-            player.setVideoSurface(null)
-        }
-        vr180View.onVideoSurfaceAvailable = null
-        vr180View.releaseRenderer()
-        vr180Surface = null
         vlcPlayer?.release() // 释放 VLC 资源
         vlcPlayer = null
+        super.onDestroy()
     }
 }
