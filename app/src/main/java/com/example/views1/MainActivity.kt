@@ -74,7 +74,6 @@ class MainActivity : AppCompatActivity() {
         playerView = findViewById(R.id.playerView)
         vr180View = findViewById(R.id.vr180View)
         vr180Toggle = findViewById(R.id.vr180Toggle)
-        vr180View.setZOrderMediaOverlay(true)
         vr180View.onVideoSurfaceAvailable = { surface ->
             vr180Surface = surface
             if (isVr180Mode && ::player.isInitialized) {
