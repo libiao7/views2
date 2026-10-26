@@ -135,7 +135,7 @@ class MainActivity : AppCompatActivity() {
                             val dx = midX - vr180PreviousMidX
                             val dy = midY - vr180PreviousMidY
 
-                            val yawDelta = -dx / density * 0.25f
+                            val yawDelta = dx / density * 0.25f
                             val pitchDelta = dy / density * 0.25f
 
                             vr180View.adjustView(yawDelta, pitchDelta)
