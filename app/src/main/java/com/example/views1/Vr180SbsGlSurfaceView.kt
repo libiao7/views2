@@ -5,7 +5,6 @@ import android.graphics.SurfaceTexture
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
-import android.opengl.Matrix
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
@@ -23,8 +22,8 @@ import kotlin.math.tan
  * that external texture and renders a perspective view for each eye into one SBS
  * canvas. No decoded frame is copied to the CPU and no pre-transcoding is required.
  *
- * This view is deliberately independent of MainActivity for the first step; wire
- * [onVideoSurfaceAvailable] to ExoPlayer.setVideoSurface() and clear it when released.
+ * Connect [onVideoSurfaceAvailable] to ExoPlayer.setVideoSurface(). The caller must
+ * clear the player's video surface before releasing this view.
  */
 class Vr180SbsGlSurfaceView(context: Context) : GLSurfaceView(context) {
 
@@ -58,6 +57,7 @@ class Vr180SbsGlSurfaceView(context: Context) : GLSurfaceView(context) {
      * Call after ExoPlayer has been detached from the Surface and before discarding this view.
      */
     fun releaseRenderer() {
+        // Ensure GL resources are released while the GL thread/context still exist.
         queueEvent { vrRenderer.release() }
     }
 
