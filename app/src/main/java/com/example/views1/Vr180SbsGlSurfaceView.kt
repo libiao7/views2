@@ -39,11 +39,14 @@ class Vr180SbsGlSurfaceView(context: Context) : GLSurfaceView(context) {
     init {
         setEGLContextClientVersion(2)
         preserveEGLContextOnPause = false
-        vrRenderer = Vr180Renderer { surface ->
-            mainHandler.post {
-                onVideoSurfaceAvailable?.invoke(surface)
-            }
-        }
+        vrRenderer = Vr180Renderer(
+            onSurfaceReady = { surface ->
+                mainHandler.post {
+                    onVideoSurfaceAvailable?.invoke(surface)
+                }
+            },
+            requestRender = { requestRender() }
+        )
         setRenderer(vrRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
     }
@@ -62,7 +65,8 @@ class Vr180SbsGlSurfaceView(context: Context) : GLSurfaceView(context) {
     }
 
     private class Vr180Renderer(
-        private val onSurfaceReady: (Surface) -> Unit
+        private val onSurfaceReady: (Surface) -> Unit,
+        private val requestRender: () -> Unit
     ) : Renderer {
 
         private var program = 0
