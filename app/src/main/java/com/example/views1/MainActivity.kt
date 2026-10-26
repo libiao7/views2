@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var player: ExoPlayer
     private lateinit var playerView: PlayerView
     private lateinit var vr180View: Vr180SbsGlSurfaceView
-    private lateinit var vr180Toggle: android.widget.Button
+//    private lateinit var vr180Toggle: android.widget.Button
     private var vr180Surface: Surface? = null
     private var isVr180Mode = false
     private var vlcPlayer: VlcPlayer? = null
@@ -54,6 +54,11 @@ class MainActivity : AppCompatActivity() {
 //    }
     private var startX = 0f
     private var startY = 0f
+    private var vr180MultiTouch = false
+    private var vr180PreviousDistance = 0f
+    private var vr180PreviousMidX = 0f
+    private var vr180PreviousMidY = 0f
+    private var vr180GestureStarted = false
 
     // 1. 记录当前的解码模式与最新的播放参数
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
@@ -74,59 +79,115 @@ class MainActivity : AppCompatActivity() {
         // 1. 初始化界面逻辑
         playerView = findViewById(R.id.playerView)
         vr180View = findViewById(R.id.vr180View)
-        vr180Toggle = findViewById(R.id.vr180Toggle)
+
         vr180View.onVideoSurfaceAvailable = { surface ->
             vr180Surface = surface
 
             if (pendingVr180Mode && surface.isValid) {
-                pendingVr180Mode = false
                 enableVr180Mode(surface)
-            } else if (isVr180Mode && ::player.isInitialized) {
+            } else if (isVr180Mode && ::player.isInitialized && surface.isValid) {
                 playerView.player = null
                 player.setVideoSurface(surface)
             }
         }
-        vr180Toggle.setOnClickListener {
-            if (!isVr180Mode) {
-                val surface = vr180Surface
 
-                if (surface != null && surface.isValid) {
-                    enableVr180Mode(surface)
-                } else {
-                    // 先显示 GLSurfaceView，让它有机会初始化 OpenGL。
-                    pendingVr180Mode = true
-                    vr180View.visibility = View.VISIBLE
-                    vr180View.requestRender()
-                }
-            } else {
-                pendingVr180Mode = false
-                isVr180Mode = false
-
-                player.setVideoSurface(null)
-                playerView.player = player
-
-                vr180View.visibility = View.GONE
-                playerView.visibility = View.VISIBLE
-                vr180Toggle.text = "VR180"
-            }
-        }
         vr180View.setOnTouchListener { _, event ->
-            when (event.action) {
+            val density = resources.displayMetrics.density
+
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = event.x
                     startY = event.y
+                    vr180MultiTouch = false
+                    vr180GestureStarted = true
                     currentPlayer.pause()
                     true
                 }
-                MotionEvent.ACTION_UP -> {
-                    val dx = event.x - startX
-                    if (abs(dx) > resources.displayMetrics.density * 10) {
-                        val moveMs = (dx / resources.displayMetrics.density).let { (it * it).toLong() * sign(it).toLong() }
-                        currentPlayer.seekTo((currentPlayer.currentPosition + moveMs).coerceAtLeast(0L))
+
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount >= 2) {
+                        vr180MultiTouch = true
+
+                        vr180PreviousDistance = pointerDistance(event)
+                        vr180PreviousMidX =
+                            (event.getX(0) + event.getX(1)) / 2f
+                        vr180PreviousMidY =
+                            (event.getY(0) + event.getY(1)) / 2f
                     }
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount >= 2) {
+                        vr180MultiTouch = true
+
+                        val distance = pointerDistance(event)
+                        val midX = (event.getX(0) + event.getX(1)) / 2f
+                        val midY = (event.getY(0) + event.getY(1)) / 2f
+
+                        if (vr180PreviousDistance > 0f && distance > 0f) {
+                            val scaleFactor = distance / vr180PreviousDistance
+
+                            // 双指间距变化：缩放
+                            vr180View.adjustZoom(scaleFactor)
+
+                            // 双指中点位移：移动视角
+                            val dx = midX - vr180PreviousMidX
+                            val dy = midY - vr180PreviousMidY
+
+                            val yawDelta = -dx / density * 0.25f
+                            val pitchDelta = dy / density * 0.25f
+
+                            vr180View.adjustView(yawDelta, pitchDelta)
+                        }
+
+                        vr180PreviousDistance = distance
+                        vr180PreviousMidX = midX
+                        vr180PreviousMidY = midY
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_POINTER_UP -> {
+                    // 双指操作期间不执行单指快进/快退。
+                    vr180MultiTouch = true
+
+                    // 若还有一根手指，重置单指起点，防止抬起时突然快进。
+                    val remainingIndex = if (event.actionIndex == 0) 1 else 0
+                    if (remainingIndex < event.pointerCount) {
+                        startX = event.getX(remainingIndex)
+                        startY = event.getY(remainingIndex)
+                    }
+
+                    vr180PreviousDistance = 0f
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (!vr180MultiTouch) {
+                        val dx = (event.x - startX) / density
+
+                        if (abs(dx) > 10f) {
+                            val moveMs = (dx * dx).toLong() * sign(dx).toLong()
+                            currentPlayer.seekTo(
+                                (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
+                            )
+                        }
+                    }
+
+                    vr180GestureStarted = false
+                    vr180PreviousDistance = 0f
                     currentPlayer.play()
                     true
                 }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    vr180GestureStarted = false
+                    vr180PreviousDistance = 0f
+                    currentPlayer.play()
+                    true
+                }
+
                 else -> true
             }
         }
@@ -468,15 +529,53 @@ class MainActivity : AppCompatActivity() {
 
         playerView.visibility = View.GONE
         vr180View.visibility = View.VISIBLE
-        vr180Toggle.text = "普通"
+//        vr180Toggle.text = "普通"
 
         vr180View.requestRender()
+    }
+    private fun pointerDistance(event: MotionEvent): Float {
+        if (event.pointerCount < 2) return 0f
+
+        val dx = event.getX(0) - event.getX(1)
+        val dy = event.getY(0) - event.getY(1)
+
+        return kotlin.math.sqrt(dx * dx + dy * dy)
     }
     private fun startPlay(url: String, subURL: String?) {
         // 4. 保存当前播放参数，以便重新创建 Player 时重试
         this.currentUrl = url
         this.currentSubUrl = subURL
         val uri = url.toUri()
+        // 仅按文件名判断是否进入 VR180，忽略大小写。
+        val fileName = Uri.decode(uri.lastPathSegment.orEmpty())
+        val shouldUseVr180 = fileName.contains("vr", ignoreCase = true)
+
+        isVr180Mode = shouldUseVr180
+        pendingVr180Mode = shouldUseVr180
+
+        if (shouldUseVr180) {
+            playerView.player = null
+            playerView.visibility = View.GONE
+            vr180View.visibility = View.VISIBLE
+
+            val surface = vr180Surface
+            if (surface != null && surface.isValid) {
+                enableVr180Mode(surface)
+            } else {
+                // Surface 尚未准备好时，等待 onVideoSurfaceAvailable 回调。
+                vr180View.requestRender()
+            }
+        } else {
+            pendingVr180Mode = false
+
+            if (::player.isInitialized) {
+                player.setVideoSurface(null)
+                playerView.player = player
+            }
+
+            playerView.visibility = View.VISIBLE
+            vr180View.visibility = View.GONE
+        }
 
         // 创建 MediaItem
         val mediaItemBuilder = MediaItem.Builder().setUri(uri)
