@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.MotionEvent
+import android.view.View
+import android.view.Surface
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.enableEdgeToEdge
@@ -33,6 +35,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var player: ExoPlayer
     private lateinit var playerView: PlayerView
+    private lateinit var vr180View: Vr180SbsGlSurfaceView
+    private lateinit var vr180Toggle: android.widget.Button
+    private var vr180Surface: Surface? = null
+    private var isVr180Mode = false
     private var vlcPlayer: VlcPlayer? = null
 
     private val currentPlayer: Player
@@ -66,6 +72,59 @@ class MainActivity : AppCompatActivity() {
 
         // 1. 初始化界面逻辑
         playerView = findViewById(R.id.playerView)
+        vr180View = findViewById(R.id.vr180View)
+        vr180Toggle = findViewById(R.id.vr180Toggle)
+        vr180View.setZOrderMediaOverlay(true)
+        vr180View.onVideoSurfaceAvailable = { surface ->
+            vr180Surface = surface
+            if (isVr180Mode && ::player.isInitialized) {
+                playerView.player = null
+                player.setVideoSurface(surface)
+            }
+        }
+        vr180Toggle.setOnClickListener {
+            if (!isVr180Mode) {
+                val surface = vr180Surface
+                if (surface == null || !surface.isValid) {
+                    android.widget.Toast.makeText(this, "VR180 渲染器尚未就绪，请稍后再试", android.widget.Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                isVr180Mode = true
+                playerView.player = null
+                player.setVideoSurface(surface)
+                playerView.visibility = View.GONE
+                vr180View.visibility = View.VISIBLE
+                vr180Toggle.text = "普通"
+                vr180View.requestRender()
+            } else {
+                isVr180Mode = false
+                player.setVideoSurface(null)
+                playerView.player = player
+                vr180View.visibility = View.GONE
+                playerView.visibility = View.VISIBLE
+                vr180Toggle.text = "VR180"
+            }
+        }
+        vr180View.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.x
+                    startY = event.y
+                    currentPlayer.pause()
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.x - startX
+                    if (abs(dx) > resources.displayMetrics.density * 10) {
+                        val moveMs = (dx / resources.displayMetrics.density).let { (it * it).toLong() * sign(it).toLong() }
+                        currentPlayer.seekTo((currentPlayer.currentPosition + moveMs).coerceAtLeast(0L))
+                    }
+                    currentPlayer.play()
+                    true
+                }
+                else -> true
+            }
+        }
         playerView.subtitleView?.setStyle(
             CaptionStyleCompat(
                 0xFF555555.toInt(),              // 字体颜色
@@ -455,6 +514,12 @@ class MainActivity : AppCompatActivity() {
         if (::player.isInitialized) {
             player.release()
         }
+        if (::player.isInitialized) {
+            player.setVideoSurface(null)
+        }
+        vr180View.onVideoSurfaceAvailable = null
+        vr180View.releaseRenderer()
+        vr180Surface = null
         vlcPlayer?.release() // 释放 VLC 资源
         vlcPlayer = null
     }
