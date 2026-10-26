@@ -247,10 +247,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::vr180View.isInitialized) {
+            vr180View.onResume()
+        }
         vlcPlayer?.attachVideoOutput(playerView)
     }
 
     override fun onPause() {
+        if (::vr180View.isInitialized) {
+            vr180View.onPause()
+        }
         super.onPause()
         vlcPlayer?.detachVideoOutput()
 //        currentPlayer.pause()
