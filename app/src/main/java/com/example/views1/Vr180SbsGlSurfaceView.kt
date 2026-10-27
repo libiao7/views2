@@ -411,7 +411,7 @@ class Vr180SbsGlSurfaceView(
         }
 
         companion object {
-            private const val VERTICAL_FOV_DEGREES = 83.97
+            private const val VERTICAL_FOV_DEGREES = 95.0
 
             private const val VERTEX_SHADER = """
                 attribute vec2 aPosition;
@@ -447,25 +447,27 @@ class Vr180SbsGlSurfaceView(
                         -1.0
                     ));
 
-                    // Rotate the view ray horizontally and vertically.
-                    float yaw = radians(uYaw);
-                    float pitch = radians(uPitch);
+                    // Match vr2xr's pitch-then-yaw rotation.
+                    // This renderer looks along -Z, while vr2xr looks along +Z,
+                    // so negate both angles when converting between the two frames.
+                    float yaw = radians(-uYaw);
+                    float pitch = radians(-uPitch);
 
                     float cy = cos(yaw);
                     float sy = sin(yaw);
                     float cp = cos(pitch);
                     float sp = sin(pitch);
 
-                    vec3 yawRay = vec3(
-                        cy * ray.x + sy * ray.z,
-                        ray.y,
-                        -sy * ray.x + cy * ray.z
+                    vec3 pitchRay = vec3(
+                        ray.x,
+                        cp * ray.y - sp * ray.z,
+                        sp * ray.y + cp * ray.z
                     );
 
                     vec3 viewRay = vec3(
-                        yawRay.x,
-                        cp * yawRay.y - sp * yawRay.z,
-                        sp * yawRay.y + cp * yawRay.z
+                        cy * pitchRay.x + sy * pitchRay.z,
+                        pitchRay.y,
+                        -sy * pitchRay.x + cy * pitchRay.z
                     );
 
                     float longitude = atan(viewRay.x, -viewRay.z);
