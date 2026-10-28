@@ -105,9 +105,9 @@ class Vr180SbsGlSurfaceView(
         private var pitchHandle = 0
 
         // User-adjustable viewing parameters.
-        private var fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
+        private var fovDegrees = 90f
         private var yawDegrees = 0f
-        private var pitchDegrees = 0f
+        private var pitchDegrees = 45f
 
         private var surfaceTexture: SurfaceTexture? = null
         private var decoderSurface: Surface? = null
@@ -121,7 +121,6 @@ class Vr180SbsGlSurfaceView(
         private var texMatrixHandle = 0
         private var eyeHandle = 0
         private var tanHalfFovHandle = 0
-        private var aspectHandle = 0
         private var samplerHandle = 0
 
         private val vertices: FloatBuffer = ByteBuffer
@@ -151,7 +150,6 @@ class Vr180SbsGlSurfaceView(
             eyeHandle = GLES20.glGetUniformLocation(program, "uEye")
             tanHalfFovHandle =
                 GLES20.glGetUniformLocation(program, "uTanHalfFovY")
-            aspectHandle = GLES20.glGetUniformLocation(program, "uAspect")
             samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
             yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
             pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
@@ -271,8 +269,6 @@ class Vr180SbsGlSurfaceView(
 
             // The output canvas is SBS: each eye gets half the width.
             val eyeWidth = (surfaceWidth / 2).coerceAtLeast(1)
-            val aspect = eyeWidth.toFloat() / surfaceHeight.toFloat()
-
             val tanHalfFovY = tan(
                 Math.toRadians(fovDegrees.toDouble() / 2.0)
             ).toFloat()
@@ -289,7 +285,6 @@ class Vr180SbsGlSurfaceView(
                 )
 
                 GLES20.glUniform1f(eyeHandle, eye.toFloat())
-                GLES20.glUniform1f(aspectHandle, aspect)
                 GLES20.glUniform1f(
                     tanHalfFovHandle,
                     tanHalfFovY
@@ -411,7 +406,7 @@ class Vr180SbsGlSurfaceView(
         }
 
         companion object {
-            private const val VERTICAL_FOV_DEGREES = 83.97
+            private const val VERTICAL_FOV_DEGREES = 90.0
 
             private const val VERTEX_SHADER = """
                 attribute vec2 aPosition;
@@ -431,7 +426,6 @@ class Vr180SbsGlSurfaceView(
                 uniform mat4 uTexMatrix;
                 uniform float uEye;
                 uniform float uTanHalfFovY;
-                uniform float uAspect;
                 uniform float uYaw;
                 uniform float uPitch;
 
@@ -442,7 +436,7 @@ class Vr180SbsGlSurfaceView(
                 void main() {
                     // Perspective camera ray; camera looks along -Z.
                     vec3 ray = normalize(vec3(
-                        vScreen.x * uAspect * uTanHalfFovY,
+                        vScreen.x * uTanHalfFovY,
                         vScreen.y * uTanHalfFovY,
                         -1.0
                     ));
