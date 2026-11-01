@@ -554,7 +554,7 @@ class Vr180SbsGlSurfaceView(
 
                     // Select the left or right source half.
                     float eyeU = longitude / PI + 0.5;
-                    float eyeOffset = uEye < 0.5 ? -uStereoOffset : uStereoOffset;
+                    float eyeOffset = uEye < 0.5 ? uStereoOffset : -uStereoOffset;
                     float sourceU = (uEye + eyeU + eyeOffset) * 0.5;
                     float sourceV = 0.5 + latitude / PI;
 
