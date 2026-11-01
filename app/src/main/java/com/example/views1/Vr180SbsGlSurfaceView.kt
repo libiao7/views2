@@ -75,9 +75,25 @@ class Vr180SbsGlSurfaceView(
      */
     fun adjustZoom(scaleFactor: Float) {
         if (scaleFactor <= 0f) return
-
         queueEvent {
             vrRenderer.adjustZoom(scaleFactor)
+            requestRender()
+        }
+    }
+
+    /** Cycles Rectilinear -> Stereographic -> Equidistant -> Equisolid -> Orthographic. */
+    fun cycleProjection(): String {
+        queueEvent {
+            vrRenderer.cycleProjection()
+            requestRender()
+        }
+        return "Projection changed"
+    }
+
+    /** Shifts the two source-eye images in opposite horizontal directions. */
+    fun adjustStereoOffset(delta: Float) {
+        queueEvent {
+            vrRenderer.adjustStereoOffset(delta)
             requestRender()
         }
     }
@@ -102,11 +118,15 @@ class Vr180SbsGlSurfaceView(
         // Shader uniform handles.
         private var yawHandle = 0
         private var pitchHandle = 0
+        private var projectionHandle = 0
+        private var stereoOffsetHandle = 0
 
         // User-adjustable viewing parameters.
         private var fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
         private var yawDegrees = 0f
         private var pitchDegrees = 0f
+        private var projectionMode = PROJECTION_STEREOGRAPHIC
+        private var stereoOffset = 0f
 
         private var surfaceTexture: SurfaceTexture? = null
         private var decoderSurface: Surface? = null
@@ -154,6 +174,8 @@ class Vr180SbsGlSurfaceView(
             samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
             yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
             pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
+            projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
+            stereoOffsetHandle = GLES20.glGetUniformLocation(program, "uStereoOffset")
 
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
@@ -277,6 +299,8 @@ class Vr180SbsGlSurfaceView(
 
             GLES20.glUniform1f(yawHandle, yawDegrees)
             GLES20.glUniform1f(pitchHandle, pitchDegrees)
+            GLES20.glUniform1i(projectionHandle, projectionMode)
+            GLES20.glUniform1f(stereoOffsetHandle, stereoOffset)
 
             for (eye in 0..1) {
                 GLES20.glViewport(
@@ -311,9 +335,18 @@ class Vr180SbsGlSurfaceView(
 
         fun adjustZoom(scaleFactor: Float) {
             if (scaleFactor <= 0f) return
+            val maximumFov = if (projectionMode == PROJECTION_RECTILINEAR) 179f else 180f
+            fovDegrees = (fovDegrees / scaleFactor).coerceIn(35f, maximumFov)
+        }
 
-            fovDegrees =
-                (fovDegrees / scaleFactor).coerceIn(35f, 180f)
+        fun cycleProjection() {
+            projectionMode = (projectionMode + 1) % PROJECTION_COUNT
+            val maximumFov = if (projectionMode == PROJECTION_RECTILINEAR) 179f else 180f
+            fovDegrees = fovDegrees.coerceAtMost(maximumFov)
+        }
+
+        fun adjustStereoOffset(delta: Float) {
+            stereoOffset = (stereoOffset + delta * 0.0005f).coerceIn(-0.08f, 0.08f)
         }
 
         fun release() {
@@ -410,6 +443,12 @@ class Vr180SbsGlSurfaceView(
 
         companion object {
             private const val VERTICAL_FOV_DEGREES = 83.97
+            private const val PROJECTION_RECTILINEAR = 0
+            private const val PROJECTION_STEREOGRAPHIC = 1
+            private const val PROJECTION_EQUIDISTANT = 2
+            private const val PROJECTION_EQUISOLID = 3
+            private const val PROJECTION_ORTHOGRAPHIC = 4
+            private const val PROJECTION_COUNT = 5
 
             private const val VERTEX_SHADER = """
                 attribute vec2 aPosition;
@@ -432,23 +471,55 @@ class Vr180SbsGlSurfaceView(
                 uniform float uAspect;
                 uniform float uYaw;
                 uniform float uPitch;
+                uniform int uProjectionMode;
+                uniform float uStereoOffset;
 
                 varying vec2 vScreen;
 
                 const float PI = 3.14159265358979323846;
 
                 void main() {
-                    // Stereographic output projection.
-                    // The screen radius is proportional to tan(theta / 2).
-                    // Calibrate it so the vertical edge midpoint still corresponds
-                    // to half the configured FOV.
+                    // Inverse-map screen radius using the selected standard projection.
+                    // uHalfFovRadians is the vertical half-FOV. Each projection uses
+                    // its own radial function, scaled so the vertical edge midpoint
+                    // corresponds to that same spherical angle.
                     vec2 screen = vec2(vScreen.x * uAspect, vScreen.y);
                     float radius = length(screen);
-                    float halfFovScale = tan(uHalfFovRadians * 0.5);
-                    float theta = 2.0 * atan(radius * halfFovScale);
+                    float alpha = uHalfFovRadians;
+                    float theta = 0.0;
+                    bool projectionValid = true;
+
+                    if (uProjectionMode == 0) {
+                        // Rectilinear: rho = tan(theta) / tan(alpha).
+                        theta = atan(radius * tan(alpha));
+                        projectionValid = alpha < 1.5707962 && theta < 1.5707962;
+                    } else if (uProjectionMode == 1) {
+                        // Stereographic: rho = tan(theta/2) / tan(alpha/2).
+                        theta = 2.0 * atan(radius * tan(alpha * 0.5));
+                        projectionValid = theta < 3.1415925;
+                    } else if (uProjectionMode == 2) {
+                        // Equidistant: rho = theta / alpha.
+                        theta = radius * alpha;
+                        projectionValid = theta <= 3.1415925;
+                    } else if (uProjectionMode == 3) {
+                        // Equisolid: rho = sin(theta/2) / sin(alpha/2).
+                        float value = radius * sin(alpha * 0.5);
+                        projectionValid = value <= 1.0;
+                        if (projectionValid) {
+                            theta = 2.0 * asin(value);
+                        }
+                    } else {
+                        // Orthographic: rho = sin(theta) / sin(alpha).
+                        float value = radius * sin(alpha);
+                        projectionValid = value <= 1.0;
+                        if (projectionValid) {
+                            theta = asin(value);
+                        }
+                    }
+
                     float sinThetaOverRadius = radius > 0.000001
                         ? sin(theta) / radius
-                        : 2.0 * halfFovScale;
+                        : 0.0;
                     vec3 ray = vec3(
                         screen.x * sinThetaOverRadius,
                         screen.y * sinThetaOverRadius,
@@ -483,7 +554,8 @@ class Vr180SbsGlSurfaceView(
 
                     // Select the left or right source half.
                     float eyeU = longitude / PI + 0.5;
-                    float sourceU = (uEye + eyeU) * 0.5;
+                    float eyeOffset = uEye < 0.5 ? -uStereoOffset : uStereoOffset;
+                    float sourceU = (uEye + eyeU + eyeOffset) * 0.5;
                     float sourceV = 0.5 + latitude / PI;
 
                     vec2 uv = (
@@ -492,7 +564,7 @@ class Vr180SbsGlSurfaceView(
                     ).xy;
 
                     // Pixels outside the forward 180-degree hemisphere are black.
-                    if (abs(longitude) > PI * 0.5) {
+                    if (!projectionValid || abs(longitude) > PI * 0.5 || sourceU < uEye * 0.5 || sourceU > (uEye + 1.0) * 0.5) {
                         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
                     } else {
                         gl_FragColor = texture2D(uVideo, uv);
