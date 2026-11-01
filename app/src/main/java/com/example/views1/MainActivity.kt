@@ -59,6 +59,16 @@ class MainActivity : AppCompatActivity() {
     private var vr180PreviousMidX = 0f
     private var vr180PreviousMidY = 0f
     private var vr180GestureStarted = false
+    private enum class VrGesture { NONE, SINGLE_VIEW, SPLIT_ZOOM, SAME_SIDE_SEEK, TRIPLE_STEREO }
+    private var vrGesture = VrGesture.NONE
+    private var vrGestureMoved = false
+    private var vrGestureStartX = 0f
+    private var vrGestureStartY = 0f
+    private var vrGesturePreviousX = 0f
+    private var vrGesturePreviousY = 0f
+    private var vrGesturePreviousDistance = 0f
+    private var vrGestureSeekDelta = 0f
+    private var vrGestureStartTime = 0L
 
     // 1. 记录当前的解码模式与最新的播放参数
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
@@ -93,11 +103,18 @@ class MainActivity : AppCompatActivity() {
 
         vr180View.setOnTouchListener { _, event ->
             val density = resources.displayMetrics.density
-
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     startX = event.x
                     startY = event.y
+                    vrGesture = VrGesture.SINGLE_VIEW
+                    vrGestureMoved = false
+                    vrGestureStartX = event.x
+                    vrGestureStartY = event.y
+                    vrGesturePreviousX = event.x
+                    vrGesturePreviousY = event.y
+                    vrGestureStartTime = event.eventTime
+                    vrGestureSeekDelta = 0f
                     vr180MultiTouch = false
                     vr180GestureStarted = true
                     currentPlayer.pause()
@@ -105,78 +122,99 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> {
-                    if (event.pointerCount >= 2) {
-                        vr180MultiTouch = true
-
-                        vr180PreviousDistance = pointerDistance(event)
-                        vr180PreviousMidX =
-                            (event.getX(0) + event.getX(1)) / 2f
-                        vr180PreviousMidY =
-                            (event.getY(0) + event.getY(1)) / 2f
+                    if (event.pointerCount == 2) {
+                        val leftSide0 = event.getX(0) < vr180View.width / 2f
+                        val leftSide1 = event.getX(1) < vr180View.width / 2f
+                        vrGesture = if (leftSide0 != leftSide1) {
+                            VrGesture.SPLIT_ZOOM
+                        } else {
+                            VrGesture.SAME_SIDE_SEEK
+                        }
+                        vrGestureStartX = (event.getX(0) + event.getX(1)) / 2f
+                        vrGestureStartY = (event.getY(0) + event.getY(1)) / 2f
+                        vrGesturePreviousX = vrGestureStartX
+                        vrGesturePreviousY = vrGestureStartY
+                        vrGesturePreviousDistance = pointerDistance(event)
+                        vrGestureSeekDelta = 0f
+                        vrGestureMoved = false
+                    } else if (event.pointerCount >= 3) {
+                        vrGesture = VrGesture.TRIPLE_STEREO
+                        vrGesturePreviousX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+                        vrGestureMoved = false
                     }
+                    vr180MultiTouch = true
                     true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    if (event.pointerCount >= 2) {
-                        vr180MultiTouch = true
-
-                        val distance = pointerDistance(event)
-                        val midX = (event.getX(0) + event.getX(1)) / 2f
-                        val midY = (event.getY(0) + event.getY(1)) / 2f
-
-                        if (vr180PreviousDistance > 0f && distance > 0f) {
-                            val scaleFactor = distance / vr180PreviousDistance
-
-                            // 双指间距变化：缩放
-                            vr180View.adjustZoom(scaleFactor)
-
-                            // 双指中点位移：移动视角
-                            val dx = midX - vr180PreviousMidX
-                            val dy = midY - vr180PreviousMidY
-
-                            val yawDelta = dx / density * 0.25f
-                            val pitchDelta = dy / density * 0.25f
-
-                            vr180View.adjustView(yawDelta, pitchDelta)
+                    when {
+                        event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_STEREO -> {
+                            val centerX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+                            val dx = centerX - vrGesturePreviousX
+                            if (kotlin.math.abs(dx) > 0.1f) {
+                                vr180View.adjustStereoOffset(dx / density)
+                                vrGestureMoved = true
+                            }
+                            vrGesturePreviousX = centerX
                         }
-
-                        vr180PreviousDistance = distance
-                        vr180PreviousMidX = midX
-                        vr180PreviousMidY = midY
+                        event.pointerCount >= 2 && vrGesture == VrGesture.SPLIT_ZOOM -> {
+                            val distance = pointerDistance(event)
+                            if (vrGesturePreviousDistance > 0f && distance > 0f) {
+                                vr180View.adjustZoom(distance / vrGesturePreviousDistance)
+                                if (kotlin.math.abs(distance - vrGesturePreviousDistance) > 0.5f) {
+                                    vrGestureMoved = true
+                                }
+                            }
+                            vrGesturePreviousDistance = distance
+                        }
+                        event.pointerCount >= 2 && vrGesture == VrGesture.SAME_SIDE_SEEK -> {
+                            val midX = (event.getX(0) + event.getX(1)) / 2f
+                            val dx = midX - vrGesturePreviousX
+                            vrGestureSeekDelta += dx / density
+                            if (kotlin.math.abs(midX - vrGestureStartX) > 8f) vrGestureMoved = true
+                            vrGesturePreviousX = midX
+                        }
+                        event.pointerCount == 1 && vrGesture == VrGesture.SINGLE_VIEW -> {
+                            val dx = (event.x - vrGesturePreviousX) / density
+                            val dy = (event.y - vrGesturePreviousY) / density
+                            if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > 0.1f) {
+                                vr180View.adjustView(dx * 0.25f, dy * 0.25f)
+                                vrGestureMoved = true
+                            }
+                            vrGesturePreviousX = event.x
+                            vrGesturePreviousY = event.y
+                        }
                     }
                     true
                 }
 
                 MotionEvent.ACTION_POINTER_UP -> {
-                    // 双指操作期间不执行单指快进/快退。
                     vr180MultiTouch = true
-
-                    // 若还有一根手指，重置单指起点，防止抬起时突然快进。
-                    val remainingIndex = if (event.actionIndex == 0) 1 else 0
-                    if (remainingIndex < event.pointerCount) {
-                        startX = event.getX(remainingIndex)
-                        startY = event.getY(remainingIndex)
+                    if (vrGesture == VrGesture.SAME_SIDE_SEEK && vrGestureMoved) {
+                        val moveMs = (vrGestureSeekDelta * vrGestureSeekDelta).toLong() *
+                            sign(vrGestureSeekDelta).toLong()
+                        currentPlayer.seekTo((currentPlayer.currentPosition + moveMs).coerceAtLeast(0L))
                     }
-
-                    vr180PreviousDistance = 0f
+                    vrGesturePreviousDistance = 0f
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!vr180MultiTouch) {
-                        val dx = (event.x - startX) / density
-
-                        if (abs(dx) > 10f) {
-                            val moveMs = (dx * dx).toLong() * sign(dx).toLong()
-                            currentPlayer.seekTo(
-                                (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
-                            )
-                        }
+                    if (vrGesture == VrGesture.SAME_SIDE_SEEK && !vrGestureMoved &&
+                        event.eventTime - vrGestureStartTime < 350L) {
+                        vr180View.cycleProjection()
+                        android.widget.Toast.makeText(
+                            this,
+                            "已切换投影",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    } else if (vrGesture == VrGesture.SAME_SIDE_SEEK && vrGestureMoved &&
+                        vrGestureSeekDelta != 0f && event.pointerCount == 1) {
+                        // The seek is normally committed when the first finger is lifted.
                     }
-
                     vr180GestureStarted = false
                     vr180PreviousDistance = 0f
+                    vrGesture = VrGesture.NONE
                     currentPlayer.play()
                     true
                 }
@@ -184,6 +222,7 @@ class MainActivity : AppCompatActivity() {
                 MotionEvent.ACTION_CANCEL -> {
                     vr180GestureStarted = false
                     vr180PreviousDistance = 0f
+                    vrGesture = VrGesture.NONE
                     currentPlayer.play()
                     true
                 }
