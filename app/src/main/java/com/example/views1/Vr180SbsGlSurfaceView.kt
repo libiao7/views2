@@ -313,7 +313,7 @@ class Vr180SbsGlSurfaceView(
             if (scaleFactor <= 0f) return
 
             fovDegrees =
-                (fovDegrees / scaleFactor).coerceIn(35f, 100f)
+                (fovDegrees / scaleFactor).coerceIn(35f, 180f)
         }
 
         fun release() {
