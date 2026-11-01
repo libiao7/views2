@@ -438,15 +438,17 @@ class Vr180SbsGlSurfaceView(
                 const float PI = 3.14159265358979323846;
 
                 void main() {
-                    // Equidistant fisheye output projection.
-                    // Screen radius is proportional to the viewing angle.
-                    // The vertical edge midpoint corresponds to half the configured FOV.
+                    // Stereographic output projection.
+                    // The screen radius is proportional to tan(theta / 2).
+                    // Calibrate it so the vertical edge midpoint still corresponds
+                    // to half the configured FOV.
                     vec2 screen = vec2(vScreen.x * uAspect, vScreen.y);
                     float radius = length(screen);
-                    float theta = radius * uHalfFovRadians;
+                    float halfFovScale = tan(uHalfFovRadians * 0.5);
+                    float theta = 2.0 * atan(radius * halfFovScale);
                     float sinThetaOverRadius = radius > 0.000001
                         ? sin(theta) / radius
-                        : uHalfFovRadians;
+                        : 2.0 * halfFovScale;
                     vec3 ray = vec3(
                         screen.x * sinThetaOverRadius,
                         screen.y * sinThetaOverRadius,
