@@ -15,7 +15,6 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
-import kotlin.math.tan
 
 /**
  * VR180 equirectangular SBS video renderer.
@@ -120,7 +119,7 @@ class Vr180SbsGlSurfaceView(
         private var positionHandle = 0
         private var texMatrixHandle = 0
         private var eyeHandle = 0
-        private var tanHalfFovHandle = 0
+        private var halfFovHandle = 0
         private var aspectHandle = 0
         private var samplerHandle = 0
 
@@ -149,8 +148,8 @@ class Vr180SbsGlSurfaceView(
             positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
             texMatrixHandle = GLES20.glGetUniformLocation(program, "uTexMatrix")
             eyeHandle = GLES20.glGetUniformLocation(program, "uEye")
-            tanHalfFovHandle =
-                GLES20.glGetUniformLocation(program, "uTanHalfFovY")
+            halfFovHandle =
+                GLES20.glGetUniformLocation(program, "uHalfFovRadians")
             aspectHandle = GLES20.glGetUniformLocation(program, "uAspect")
             samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
             yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
@@ -273,9 +272,8 @@ class Vr180SbsGlSurfaceView(
             val eyeWidth = (surfaceWidth / 2).coerceAtLeast(1)
             val aspect = eyeWidth.toFloat() / surfaceHeight.toFloat()
 
-            val tanHalfFovY = tan(
-                Math.toRadians(fovDegrees.toDouble() / 2.0)
-            ).toFloat()
+            val halfFovRadians =
+                Math.toRadians(fovDegrees.toDouble() / 2.0).toFloat()
 
             GLES20.glUniform1f(yawHandle, yawDegrees)
             GLES20.glUniform1f(pitchHandle, pitchDegrees)
@@ -291,8 +289,8 @@ class Vr180SbsGlSurfaceView(
                 GLES20.glUniform1f(eyeHandle, eye.toFloat())
                 GLES20.glUniform1f(aspectHandle, aspect)
                 GLES20.glUniform1f(
-                    tanHalfFovHandle,
-                    tanHalfFovY
+                    halfFovHandle,
+                    halfFovRadians
                 )
 
                 GLES20.glDrawArrays(
@@ -430,7 +428,7 @@ class Vr180SbsGlSurfaceView(
                 uniform samplerExternalOES uVideo;
                 uniform mat4 uTexMatrix;
                 uniform float uEye;
-                uniform float uTanHalfFovY;
+                uniform float uHalfFovRadians;
                 uniform float uAspect;
                 uniform float uYaw;
                 uniform float uPitch;
@@ -440,12 +438,20 @@ class Vr180SbsGlSurfaceView(
                 const float PI = 3.14159265358979323846;
 
                 void main() {
-                    // Perspective camera ray; camera looks along -Z.
-                    vec3 ray = normalize(vec3(
-                        vScreen.x * uAspect * uTanHalfFovY,
-                        vScreen.y * uTanHalfFovY,
-                        -1.0
-                    ));
+                    // Equidistant fisheye output projection.
+                    // Screen radius is proportional to the viewing angle.
+                    // The vertical edge midpoint corresponds to half the configured FOV.
+                    vec2 screen = vec2(vScreen.x * uAspect, vScreen.y);
+                    float radius = length(screen);
+                    float theta = radius * uHalfFovRadians;
+                    float sinThetaOverRadius = radius > 0.000001
+                        ? sin(theta) / radius
+                        : uHalfFovRadians;
+                    vec3 ray = vec3(
+                        screen.x * sinThetaOverRadius,
+                        screen.y * sinThetaOverRadius,
+                        -cos(theta)
+                    );
 
                     // Rotate the view ray horizontally and vertically.
                     float yaw = radians(uYaw);
