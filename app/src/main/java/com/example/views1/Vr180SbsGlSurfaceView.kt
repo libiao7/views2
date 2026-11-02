@@ -152,7 +152,6 @@ class Vr180SbsGlSurfaceView(
         private var sourceProjectionHandle = 0
         private var fisheyeModelHandle = 0
         private var fisheyeHalfFovHandle = 0
-        private var sourceAspectHandle = 0
         private var fisheyeCenterHandle = 0
         private var fisheyeRadiusHandle = 0
 
@@ -222,7 +221,6 @@ class Vr180SbsGlSurfaceView(
             fisheyeModelHandle = GLES20.glGetUniformLocation(program, "uFisheyeModel")
             fisheyeHalfFovHandle =
                 GLES20.glGetUniformLocation(program, "uFisheyeHalfFov")
-            sourceAspectHandle = GLES20.glGetUniformLocation(program, "uSourceAspect")
             fisheyeCenterHandle = GLES20.glGetUniformLocation(program, "uFisheyeCenter")
             fisheyeRadiusHandle = GLES20.glGetUniformLocation(program, "uFisheyeRadius")
 
@@ -356,9 +354,8 @@ class Vr180SbsGlSurfaceView(
             GLES20.glUniform1i(fisheyeModelHandle, fisheyePreset.model)
             GLES20.glUniform1f(
                 fisheyeHalfFovHandle,
-                Math.toRadians(fisheyePreset.fovDegrees / 2.0).toFloat()
+                Math.toRadians(fisheyePreset.fovDegrees.toDouble() / 2.0).toFloat()
             )
-            GLES20.glUniform1f(sourceAspectHandle, sourceAspect)
 
             // Shift each eye's optical axis inward so the two axes are 58 mm apart.
             // The shift is normalized to each half-screen viewport.
@@ -627,7 +624,6 @@ class Vr180SbsGlSurfaceView(
                 uniform int uSourceProjectionMode;
                 uniform int uFisheyeModel;
                 uniform float uFisheyeHalfFov;
-                uniform float uSourceAspect;
                 uniform vec2 uFisheyeCenter;
                 uniform vec2 uFisheyeRadius;
 
