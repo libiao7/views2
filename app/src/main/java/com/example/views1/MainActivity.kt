@@ -145,7 +145,9 @@ class MainActivity : AppCompatActivity() {
                         vrGestureMoved = false
                     } else if (event.pointerCount >= 3) {
                         vrGesture = VrGesture.TRIPLE_OFF_AXIS
-                        vrGesturePreviousX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+                        vrGestureStartTime = event.eventTime
+                        vrGestureStartX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+                        vrGesturePreviousX = vrGestureStartX
                         vrGestureMoved = false
                     }
                     vr180MultiTouch = true
@@ -157,9 +159,14 @@ class MainActivity : AppCompatActivity() {
                         event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
                             val centerX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
                             val dx = centerX - vrGesturePreviousX
-                            if (kotlin.math.abs(dx) > 0.1f) {
-                                vr180View.adjustOffAxisOffset(-dx / density)
+                            // A small touch slop separates a three-finger tap from IPD adjustment.
+                            if (!vrGestureMoved &&
+                                kotlin.math.abs(centerX - vrGestureStartX) > 8f * density
+                            ) {
                                 vrGestureMoved = true
+                            }
+                            if (vrGestureMoved && kotlin.math.abs(dx) > 0.1f) {
+                                vr180View.adjustOffAxisOffset(-dx / density)
                             }
                             vrGesturePreviousX = centerX
                         }
@@ -208,13 +215,26 @@ class MainActivity : AppCompatActivity() {
                 MotionEvent.ACTION_UP -> {
                     if (vrGesture == VrGesture.SAME_SIDE_SEEK && !vrGestureMoved &&
                         event.eventTime - vrGestureStartTime < 350L) {
-                        vr180View.cycleProjection { projectionName ->
-                            // Rapid projection changes should replace, not queue, notifications.
+                        vr180View.cycleTapSetting { settingName ->
+                            // Rapid setting changes should replace, not queue, notifications.
                             if (!isFinishing && !isDestroyed) {
                                 projectionToast?.cancel()
                                 projectionToast = android.widget.Toast.makeText(
                                     applicationContext,
-                                    "当前投影：$projectionName",
+                                    "当前设置：$settingName",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).also { it.show() }
+                            }
+                        }
+                    } else if (vrGesture == VrGesture.TRIPLE_OFF_AXIS && !vrGestureMoved &&
+                        event.eventTime - vrGestureStartTime < 350L
+                    ) {
+                        vr180View.cycleSourceProjection { sourceName ->
+                            if (!isFinishing && !isDestroyed) {
+                                projectionToast?.cancel()
+                                projectionToast = android.widget.Toast.makeText(
+                                    applicationContext,
+                                    "源投影：$sourceName",
                                     android.widget.Toast.LENGTH_SHORT
                                 ).also { it.show() }
                             }
@@ -461,6 +481,7 @@ class MainActivity : AppCompatActivity() {
         // 自动旋转逻辑：根据视频宽高比决定横竖屏
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
+                vr180View.setSourceVideoSize(videoSize.width, videoSize.height)
                 requestedOrientation = if (videoSize.width > videoSize.height) {
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 } else {
