@@ -40,6 +40,7 @@ class Vr180SbsGlSurfaceView(
         preserveEGLContextOnPause = false
 
         vrRenderer = Vr180Renderer(
+            screenXDpi = resources.displayMetrics.xdpi,
             onSurfaceReady = { surface ->
                 mainHandler.post {
                     onVideoSurfaceAvailable?.invoke(surface)
@@ -108,6 +109,7 @@ class Vr180SbsGlSurfaceView(
     }
 
     private class Vr180Renderer(
+        private val screenXDpi: Float,
         private val onSurfaceReady: (Surface) -> Unit,
         private val requestRender: () -> Unit
     ) : Renderer {
@@ -120,6 +122,7 @@ class Vr180SbsGlSurfaceView(
         private var pitchHandle = 0
         private var projectionHandle = 0
         private var stereoOffsetHandle = 0
+        private var ipdOffsetHandle = 0
 
         // User-adjustable viewing parameters.
         private var fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
@@ -176,6 +179,7 @@ class Vr180SbsGlSurfaceView(
             pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
             projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
             stereoOffsetHandle = GLES20.glGetUniformLocation(program, "uStereoOffset")
+            ipdOffsetHandle = GLES20.glGetUniformLocation(program, "uIpdOffset")
 
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
@@ -301,6 +305,17 @@ class Vr180SbsGlSurfaceView(
             GLES20.glUniform1f(pitchHandle, pitchDegrees)
             GLES20.glUniform1i(projectionHandle, projectionMode)
             GLES20.glUniform1f(stereoOffsetHandle, stereoOffset)
+
+            // Shift each eye's optical axis inward so the two axes are 58 mm apart.
+            // The shift is normalized to each half-screen viewport.
+            val physicalScreenWidthMm = if (screenXDpi > 0f) {
+                surfaceWidth * 25.4f / screenXDpi
+            } else {
+                158f // Fallback for the 3200 px / 158 mm target display.
+            }
+            val ipdOffset = ((physicalScreenWidthMm - 2f * TARGET_IPD_MM) /
+                physicalScreenWidthMm).coerceAtLeast(0f)
+            GLES20.glUniform1f(ipdOffsetHandle, ipdOffset)
 
             for (eye in 0..1) {
                 GLES20.glViewport(
@@ -447,6 +462,7 @@ class Vr180SbsGlSurfaceView(
 
         companion object {
             private const val VERTICAL_FOV_DEGREES = 83.97
+            private const val TARGET_IPD_MM = 58f
             private const val PROJECTION_STEREOGRAPHIC = 0
             private const val PROJECTION_EQUIDISTANT = 1
             private const val PROJECTION_EQUISOLID = 2
@@ -475,6 +491,7 @@ class Vr180SbsGlSurfaceView(
                 uniform float uPitch;
                 uniform int uProjectionMode;
                 uniform float uStereoOffset;
+                uniform float uIpdOffset;
 
                 varying vec2 vScreen;
 
@@ -485,7 +502,8 @@ class Vr180SbsGlSurfaceView(
                     // uHalfFovRadians is the vertical half-FOV. Each projection uses
                     // its own radial function, scaled so the vertical edge midpoint
                     // corresponds to that same spherical angle.
-                    vec2 screen = vec2(vScreen.x * uAspect, vScreen.y);
+                    float eyeAxisShift = uEye < 0.5 ? uIpdOffset : -uIpdOffset;
+                    vec2 screen = vec2((vScreen.x - eyeAxisShift) * uAspect, vScreen.y);
                     float radius = length(screen);
                     float alpha = uHalfFovRadians;
                     float theta = 0.0;
