@@ -91,10 +91,10 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
-    /** Shifts the two source-eye images in opposite horizontal directions. */
-    fun adjustStereoOffset(delta: Float) {
+    /** Adjusts the binocular off-axis projection while keeping both viewing directions parallel. */
+    fun adjustOffAxisOffset(delta: Float) {
         queueEvent {
-            vrRenderer.adjustStereoOffset(delta)
+            vrRenderer.adjustOffAxisOffset(delta)
             requestRender()
         }
     }
@@ -121,7 +121,6 @@ class Vr180SbsGlSurfaceView(
         private var yawHandle = 0
         private var pitchHandle = 0
         private var projectionHandle = 0
-        private var stereoOffsetHandle = 0
         private var ipdOffsetHandle = 0
 
         // User-adjustable viewing parameters.
@@ -129,7 +128,8 @@ class Vr180SbsGlSurfaceView(
         private var yawDegrees = 0f
         private var pitchDegrees = 0f
         private var projectionMode = PROJECTION_STEREOGRAPHIC
-        private var stereoOffset = 0f
+        // Additional normalized off-axis shift, added to the physical 58 mm baseline.
+        private var offAxisAdjustment = 0f
 
         private var surfaceTexture: SurfaceTexture? = null
         private var decoderSurface: Surface? = null
@@ -178,7 +178,6 @@ class Vr180SbsGlSurfaceView(
             yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
             pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
             projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
-            stereoOffsetHandle = GLES20.glGetUniformLocation(program, "uStereoOffset")
             ipdOffsetHandle = GLES20.glGetUniformLocation(program, "uIpdOffset")
 
             val ids = IntArray(1)
@@ -304,7 +303,6 @@ class Vr180SbsGlSurfaceView(
             GLES20.glUniform1f(yawHandle, yawDegrees)
             GLES20.glUniform1f(pitchHandle, pitchDegrees)
             GLES20.glUniform1i(projectionHandle, projectionMode)
-            GLES20.glUniform1f(stereoOffsetHandle, stereoOffset)
 
             // Shift each eye's optical axis inward so the two axes are 58 mm apart.
             // The shift is normalized to each half-screen viewport.
@@ -313,9 +311,11 @@ class Vr180SbsGlSurfaceView(
             } else {
                 158f // Fallback for the 3200 px / 158 mm target display.
             }
-            val ipdOffset = ((physicalScreenWidthMm - 2f * TARGET_IPD_MM) /
+            val baseIpdOffset = ((physicalScreenWidthMm - 2f * TARGET_IPD_MM) /
                 physicalScreenWidthMm).coerceAtLeast(0f)
-            GLES20.glUniform1f(ipdOffsetHandle, ipdOffset)
+            val effectiveOffAxisOffset = (baseIpdOffset + offAxisAdjustment)
+                .coerceIn(0f, 0.95f)
+            GLES20.glUniform1f(ipdOffsetHandle, effectiveOffAxisOffset)
 
             for (eye in 0..1) {
                 GLES20.glViewport(
@@ -364,8 +364,11 @@ class Vr180SbsGlSurfaceView(
             }
         }
 
-        fun adjustStereoOffset(delta: Float) {
-            stereoOffset = (stereoOffset + delta * 0.0005f).coerceIn(-0.08f, 0.08f)
+        fun adjustOffAxisOffset(delta: Float) {
+            // Positive movement increases the inward optical-axis shift, matching
+            // the direction used by the fixed 58 mm off-axis projection.
+            offAxisAdjustment = (offAxisAdjustment + delta * 0.0005f)
+                .coerceIn(-0.08f, 0.08f)
         }
 
         fun release() {
@@ -490,7 +493,6 @@ class Vr180SbsGlSurfaceView(
                 uniform float uYaw;
                 uniform float uPitch;
                 uniform int uProjectionMode;
-                uniform float uStereoOffset;
                 uniform float uIpdOffset;
 
                 varying vec2 vScreen;
@@ -563,8 +565,7 @@ class Vr180SbsGlSurfaceView(
 
                     // Select the left or right source half.
                     float eyeU = longitude / PI + 0.5;
-                    float eyeOffset = uEye < 0.5 ? uStereoOffset : -uStereoOffset;
-                    float sourceU = (uEye + eyeU + eyeOffset) * 0.5;
+                    float sourceU = (uEye + eyeU) * 0.5;
                     float sourceV = 0.5 + latitude / PI;
 
                     vec2 uv = (
