@@ -10,6 +10,8 @@ import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.Surface
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -99,11 +101,37 @@ class Vr180SbsGlSurfaceView(
     }
 
     /**
-     * Call after ExoPlayer has detached from the Surface.
+     * Release decoder output objects and GL objects while the EGL context is current.
+     *
+     * Must be called before GLSurfaceView.onPause(). The player must detach from the
+     * decoder Surface first. Waiting here makes the GL-thread cleanup happen before
+     * GLSurfaceView pauses/destroys its EGL context.
      */
-    fun releaseRenderer() {
+    fun releaseForPause() {
+        val finished = CountDownLatch(1)
         queueEvent {
-            vrRenderer.release()
+            try {
+                vrRenderer.releaseForPause()
+            } finally {
+                finished.countDown()
+            }
+        }
+        requestRender()
+
+        try {
+            if (!finished.await(1500, TimeUnit.MILLISECONDS)) {
+                android.util.Log.w(
+                    "Vr180SbsGlSurfaceView",
+                    "Timed out waiting for GL resource cleanup; EGL teardown will reclaim context resources"
+                )
+            }
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            android.util.Log.w(
+                "Vr180SbsGlSurfaceView",
+                "Interrupted while waiting for GL resource cleanup",
+                e
+            )
         }
     }
 
@@ -161,6 +189,13 @@ class Vr180SbsGlSurfaceView(
             }
 
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+            // preserveEGLContextOnPause is false: the previous GL context is gone.
+            // Drop any Java-side wrappers left from that context, but do not issue
+            // glDelete calls for names belonging to the destroyed context.
+            releaseSurfaceObjects()
+            program = 0
+            textureId = 0
+
             GLES20.glClearColor(0f, 0f, 0f, 1f)
 
             program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
@@ -349,7 +384,24 @@ class Vr180SbsGlSurfaceView(
             stereoOffset = (stereoOffset + delta * 0.0005f).coerceIn(-0.08f, 0.08f)
         }
 
-        fun release() {
+        /**
+         * Runs only on the GL thread with its EGL context current.
+         */
+        fun releaseForPause() {
+            releaseSurfaceObjects()
+
+            if (textureId != 0) {
+                GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
+                textureId = 0
+            }
+
+            if (program != 0) {
+                GLES20.glDeleteProgram(program)
+                program = 0
+            }
+        }
+
+        private fun releaseSurfaceObjects() {
             surfaceTexture?.setOnFrameAvailableListener(null)
             surfaceTexture?.release()
             surfaceTexture = null
@@ -357,18 +409,8 @@ class Vr180SbsGlSurfaceView(
             decoderSurface?.release()
             decoderSurface = null
 
-            if (textureId != 0) {
-                GLES20.glDeleteTextures(
-                    1,
-                    intArrayOf(textureId),
-                    0
-                )
-                textureId = 0
-            }
-
-            if (program != 0) {
-                GLES20.glDeleteProgram(program)
-                program = 0
+            synchronized(this) {
+                frameAvailable = false
             }
         }
 
