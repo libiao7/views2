@@ -41,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private var isVr180Mode = false
     private var vlcPlayer: VlcPlayer? = null
     private var pendingVr180Mode = false
+    // Keep only the newest projection notification; cancel the previous Toast before showing another.
+    private var projectionToast: android.widget.Toast? = null
 
     private val currentPlayer: Player
         get() = vlcPlayer ?: player
@@ -207,11 +209,15 @@ class MainActivity : AppCompatActivity() {
                     if (vrGesture == VrGesture.SAME_SIDE_SEEK && !vrGestureMoved &&
                         event.eventTime - vrGestureStartTime < 350L) {
                         vr180View.cycleProjection { projectionName ->
-                            android.widget.Toast.makeText(
-                                this,
-                                "当前投影：$projectionName",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
+                            // Rapid projection changes should replace, not queue, notifications.
+                            if (!isFinishing && !isDestroyed) {
+                                projectionToast?.cancel()
+                                projectionToast = android.widget.Toast.makeText(
+                                    applicationContext,
+                                    "当前投影：$projectionName",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).also { it.show() }
+                            }
                         }
                     } else if (vrGesture == VrGesture.SAME_SIDE_SEEK && vrGestureMoved &&
                         vrGestureSeekDelta != 0f && event.pointerCount == 1) {
@@ -754,6 +760,10 @@ class MainActivity : AppCompatActivity() {
 
     // 释放资源
     override fun onDestroy() {
+        // Do not leave a projection notification visible after this Activity exits.
+        projectionToast?.cancel()
+        projectionToast = null
+
         // 先解除 ExoPlayer 对解码 Surface 的引用，再释放播放器和 GL 资源。
         if (::player.isInitialized) {
             player.clearVideoSurface()
