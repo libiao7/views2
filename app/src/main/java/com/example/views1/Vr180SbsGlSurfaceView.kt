@@ -81,13 +81,13 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
-    /** Cycles Rectilinear -> Stereographic -> Equidistant -> Equisolid -> Orthographic. */
-    fun cycleProjection(): String {
+    /** Cycles the three supported fisheye-style projections and reports the active one. */
+    fun cycleProjection(onChanged: (String) -> Unit) {
         queueEvent {
-            vrRenderer.cycleProjection()
+            val projectionName = vrRenderer.cycleProjection()
             requestRender()
+            mainHandler.post { onChanged(projectionName) }
         }
-        return "Projection changed"
     }
 
     /** Shifts the two source-eye images in opposite horizontal directions. */
@@ -335,14 +335,18 @@ class Vr180SbsGlSurfaceView(
 
         fun adjustZoom(scaleFactor: Float) {
             if (scaleFactor <= 0f) return
-            val maximumFov = if (projectionMode == PROJECTION_RECTILINEAR) 179f else 180f
-            fovDegrees = (fovDegrees / scaleFactor).coerceIn(35f, maximumFov)
+            fovDegrees = (fovDegrees / scaleFactor).coerceIn(35f, 180f)
         }
 
-        fun cycleProjection() {
+        fun cycleProjection(): String {
             projectionMode = (projectionMode + 1) % PROJECTION_COUNT
-            val maximumFov = if (projectionMode == PROJECTION_RECTILINEAR) 179f else 180f
-            fovDegrees = fovDegrees.coerceAtMost(maximumFov)
+            fovDegrees = fovDegrees.coerceAtMost(180f)
+            return when (projectionMode) {
+                PROJECTION_STEREOGRAPHIC -> "球极平面投影（Stereographic）"
+                PROJECTION_EQUIDISTANT -> "等距鱼眼投影（Equidistant）"
+                PROJECTION_EQUISOLID -> "等立体角投影（Equisolid）"
+                else -> error("Unsupported projection mode: $projectionMode")
+            }
         }
 
         fun adjustStereoOffset(delta: Float) {
@@ -443,12 +447,10 @@ class Vr180SbsGlSurfaceView(
 
         companion object {
             private const val VERTICAL_FOV_DEGREES = 83.97
-            private const val PROJECTION_RECTILINEAR = 0
-            private const val PROJECTION_STEREOGRAPHIC = 1
-            private const val PROJECTION_EQUIDISTANT = 2
-            private const val PROJECTION_EQUISOLID = 3
-            private const val PROJECTION_ORTHOGRAPHIC = 4
-            private const val PROJECTION_COUNT = 5
+            private const val PROJECTION_STEREOGRAPHIC = 0
+            private const val PROJECTION_EQUIDISTANT = 1
+            private const val PROJECTION_EQUISOLID = 2
+            private const val PROJECTION_COUNT = 3
 
             private const val VERTEX_SHADER = """
                 attribute vec2 aPosition;
@@ -490,30 +492,19 @@ class Vr180SbsGlSurfaceView(
                     bool projectionValid = true;
 
                     if (uProjectionMode == 0) {
-                        // Rectilinear: rho = tan(theta) / tan(alpha).
-                        theta = atan(radius * tan(alpha));
-                        projectionValid = alpha < 1.5707962 && theta < 1.5707962;
-                    } else if (uProjectionMode == 1) {
                         // Stereographic: rho = tan(theta/2) / tan(alpha/2).
                         theta = 2.0 * atan(radius * tan(alpha * 0.5));
                         projectionValid = theta < 3.1415925;
-                    } else if (uProjectionMode == 2) {
+                    } else if (uProjectionMode == 1) {
                         // Equidistant: rho = theta / alpha.
                         theta = radius * alpha;
                         projectionValid = theta <= 3.1415925;
-                    } else if (uProjectionMode == 3) {
+                    } else {
                         // Equisolid: rho = sin(theta/2) / sin(alpha/2).
                         float value = radius * sin(alpha * 0.5);
                         projectionValid = value <= 1.0;
                         if (projectionValid) {
                             theta = 2.0 * asin(value);
-                        }
-                    } else {
-                        // Orthographic: rho = sin(theta) / sin(alpha).
-                        float value = radius * sin(alpha);
-                        projectionValid = value <= 1.0;
-                        if (projectionValid) {
-                            theta = asin(value);
                         }
                     }
 
