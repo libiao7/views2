@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
     private var vr180PreviousMidX = 0f
     private var vr180PreviousMidY = 0f
     private var vr180GestureStarted = false
-    private enum class VrGesture { NONE, SINGLE_VIEW, SPLIT_ZOOM, SAME_SIDE_SEEK, TRIPLE_STEREO }
+    private enum class VrGesture { NONE, SINGLE_VIEW, SPLIT_ZOOM, SAME_SIDE_SEEK, TRIPLE_OFF_AXIS }
     private var vrGesture = VrGesture.NONE
     private var vrGestureMoved = false
     private var vrGestureStartX = 0f
@@ -144,7 +144,7 @@ class MainActivity : AppCompatActivity() {
                         vrGestureSeekDelta = 0f
                         vrGestureMoved = false
                     } else if (event.pointerCount >= 3) {
-                        vrGesture = VrGesture.TRIPLE_STEREO
+                        vrGesture = VrGesture.TRIPLE_OFF_AXIS
                         vrGesturePreviousX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
                         vrGestureMoved = false
                     }
@@ -154,11 +154,11 @@ class MainActivity : AppCompatActivity() {
 
                 MotionEvent.ACTION_MOVE -> {
                     when {
-                        event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_STEREO -> {
+                        event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
                             val centerX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
                             val dx = centerX - vrGesturePreviousX
                             if (kotlin.math.abs(dx) > 0.1f) {
-                                vr180View.adjustStereoOffset(dx / density)
+                                vr180View.adjustOffAxisOffset(dx / density)
                                 vrGestureMoved = true
                             }
                             vrGesturePreviousX = centerX
