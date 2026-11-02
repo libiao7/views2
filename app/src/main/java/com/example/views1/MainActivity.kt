@@ -93,19 +93,16 @@ class MainActivity : AppCompatActivity() {
         vr180View = findViewById(R.id.vr180View)
 
         vr180View.onVideoSurfaceAvailable = { surface ->
-            // Ignore a stale callback posted before the previous GL context was torn down.
-            if (activityResumed && surface.isValid) {
+            // Keep a valid surface even if it arrives just before onResume().
+            // A stale surface released during pause fails isValid and is ignored.
+            if (surface.isValid) {
                 vr180Surface = surface
 
-                if (pendingVr180Mode) {
-                    enableVr180Mode(surface)
-                } else if (isVr180Mode && ::player.isInitialized) {
-                    playerView.player = null
-                    player.setVideoSurface(surface)
-
-                    if (resumeVrPlaybackOnResume) {
-                        resumeVrPlaybackOnResume = false
-                        player.play()
+                if (activityResumed) {
+                    if (pendingVr180Mode) {
+                        enableVr180Mode(surface)
+                    } else if (isVr180Mode && ::player.isInitialized) {
+                        attachVr180Surface(surface)
                     }
                 }
             }
@@ -369,8 +366,16 @@ class MainActivity : AppCompatActivity() {
         }
         vlcPlayer?.attachVideoOutput(playerView)
 
-        // In VR180 mode the GL renderer creates a fresh decoder Surface after
-        // resume; onVideoSurfaceAvailable reattaches it and restores playback.
+        // A surface callback can arrive just before onResume(); attach that valid
+        // surface here as well. Otherwise the next onSurfaceCreated callback does it.
+        val surface = vr180Surface
+        if (isVr180Mode && surface != null && surface.isValid) {
+            if (pendingVr180Mode) {
+                enableVr180Mode(surface)
+            } else {
+                attachVr180Surface(surface)
+            }
+        }
     }
 
     override fun onPause() {
@@ -590,14 +595,23 @@ class MainActivity : AppCompatActivity() {
         pendingVr180Mode = false
         isVr180Mode = true
 
-        playerView.player = null
-        player.setVideoSurface(surface)
-
         playerView.visibility = View.GONE
         vr180View.visibility = View.VISIBLE
+        attachVr180Surface(surface)
 //        vr180Toggle.text = "普通"
+    }
 
+    private fun attachVr180Surface(surface: Surface) {
+        if (!activityResumed || !surface.isValid || !::player.isInitialized) return
+
+        playerView.player = null
+        player.setVideoSurface(surface)
         vr180View.requestRender()
+
+        if (resumeVrPlaybackOnResume) {
+            resumeVrPlaybackOnResume = false
+            player.play()
+        }
     }
     private fun pointerDistance(event: MotionEvent): Float {
         if (event.pointerCount < 2) return 0f
