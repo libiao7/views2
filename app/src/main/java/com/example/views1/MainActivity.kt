@@ -147,6 +147,7 @@ class MainActivity : AppCompatActivity() {
                         vrGesture = VrGesture.TRIPLE_OFF_AXIS
                         vrGestureStartTime = event.eventTime
                         vrGestureStartX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+                        vrGestureStartY = (0 until event.pointerCount).map { event.getY(it) }.average().toFloat()
                         vrGesturePreviousX = vrGestureStartX
                         vrGestureMoved = false
                     }
@@ -158,14 +159,23 @@ class MainActivity : AppCompatActivity() {
                     when {
                         event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
                             val centerX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
+                            val centerY = (0 until event.pointerCount).map { event.getY(it) }.average().toFloat()
                             val dx = centerX - vrGesturePreviousX
-                            // A small touch slop separates a three-finger tap from IPD adjustment.
+                            val totalDx = centerX - vrGestureStartX
+                            val totalDy = centerY - vrGestureStartY
+                            val touchSlop = 8f * density
+                            // Any deliberate movement cancels a tap; horizontal-dominant
+                            // movement retains the existing three-finger IPD adjustment.
                             if (!vrGestureMoved &&
-                                kotlin.math.abs(centerX - vrGestureStartX) > 8f * density
+                                kotlin.math.hypot(totalDx.toDouble(), totalDy.toDouble()) > touchSlop
                             ) {
                                 vrGestureMoved = true
                             }
-                            if (vrGestureMoved && kotlin.math.abs(dx) > 0.1f) {
+                            if (vrGestureMoved &&
+                                kotlin.math.abs(totalDx) > touchSlop &&
+                                kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy) &&
+                                kotlin.math.abs(dx) > 0.1f
+                            ) {
                                 vr180View.adjustOffAxisOffset(-dx / density)
                             }
                             vrGesturePreviousX = centerX
