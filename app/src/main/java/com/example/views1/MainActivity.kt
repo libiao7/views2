@@ -680,6 +680,10 @@ class MainActivity : AppCompatActivity() {
             pendingVr180Mode = false
 
             if (::player.isInitialized) {
+                // PlayerView may still hold the same Player instance after a VR
+                // session. Force it to detach and reattach so its video output
+                // Surface is restored instead of leaving ordinary 2D playback black.
+                playerView.player = null
                 player.setVideoSurface(null)
                 playerView.player = player
             }
