@@ -314,7 +314,7 @@ class Vr180SbsGlSurfaceView(
             val baseIpdOffset = ((physicalScreenWidthMm - 2f * TARGET_IPD_MM) /
                 physicalScreenWidthMm).coerceAtLeast(0f)
             val effectiveOffAxisOffset = (baseIpdOffset + offAxisAdjustment)
-                .coerceIn(0f, 0.95f)
+                .coerceIn(-0.95f, 0.95f)
             GLES20.glUniform1f(ipdOffsetHandle, effectiveOffAxisOffset)
 
             for (eye in 0..1) {
@@ -367,8 +367,8 @@ class Vr180SbsGlSurfaceView(
         fun adjustOffAxisOffset(delta: Float) {
             // Positive movement increases the inward optical-axis shift, matching
             // the direction used by the fixed 58 mm off-axis projection.
-            offAxisAdjustment = (offAxisAdjustment + delta * 0.0005f)
-                .coerceIn(-0.08f, 0.08f)
+            offAxisAdjustment = (offAxisAdjustment + delta * 0.003f)
+                .coerceIn(-0.8f, 0.8f)
         }
 
         fun release() {

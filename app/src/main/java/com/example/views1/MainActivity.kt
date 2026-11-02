@@ -158,7 +158,7 @@ class MainActivity : AppCompatActivity() {
                             val centerX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
                             val dx = centerX - vrGesturePreviousX
                             if (kotlin.math.abs(dx) > 0.1f) {
-                                vr180View.adjustOffAxisOffset(dx / density)
+                                vr180View.adjustOffAxisOffset(-dx / density)
                                 vrGestureMoved = true
                             }
                             vrGesturePreviousX = centerX
