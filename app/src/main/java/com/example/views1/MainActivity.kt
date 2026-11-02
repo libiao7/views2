@@ -41,6 +41,8 @@ class MainActivity : AppCompatActivity() {
     private var isVr180Mode = false
     private var vlcPlayer: VlcPlayer? = null
     private var pendingVr180Mode = false
+    private var activityResumed = false
+    private var resumeVrPlaybackOnResume = false
 
     private val currentPlayer: Player
         get() = vlcPlayer ?: player
@@ -91,13 +93,21 @@ class MainActivity : AppCompatActivity() {
         vr180View = findViewById(R.id.vr180View)
 
         vr180View.onVideoSurfaceAvailable = { surface ->
-            vr180Surface = surface
+            // Ignore a stale callback posted before the previous GL context was torn down.
+            if (activityResumed && surface.isValid) {
+                vr180Surface = surface
 
-            if (pendingVr180Mode && surface.isValid) {
-                enableVr180Mode(surface)
-            } else if (isVr180Mode && ::player.isInitialized && surface.isValid) {
-                playerView.player = null
-                player.setVideoSurface(surface)
+                if (pendingVr180Mode) {
+                    enableVr180Mode(surface)
+                } else if (isVr180Mode && ::player.isInitialized) {
+                    playerView.player = null
+                    player.setVideoSurface(surface)
+
+                    if (resumeVrPlaybackOnResume) {
+                        resumeVrPlaybackOnResume = false
+                        player.play()
+                    }
+                }
             }
         }
 
@@ -352,19 +362,36 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        activityResumed = true
+
         if (::vr180View.isInitialized) {
             vr180View.onResume()
         }
         vlcPlayer?.attachVideoOutput(playerView)
+
+        // In VR180 mode the GL renderer creates a fresh decoder Surface after
+        // resume; onVideoSurfaceAvailable reattaches it and restores playback.
     }
 
     override fun onPause() {
+        // Stop decoding to the GL-owned Surface before releasing its SurfaceTexture.
+        activityResumed = false
+        if (::player.isInitialized && isVr180Mode) {
+            resumeVrPlaybackOnResume = player.playWhenReady
+            player.pause()
+            player.clearVideoSurface()
+            vr180Surface = null
+        }
+
         if (::vr180View.isInitialized) {
+            // releaseForPause must run before GLSurfaceView.onPause(), while the
+            // EGL context is still current on the GL thread.
+            vr180View.releaseForPause()
             vr180View.onPause()
         }
-        super.onPause()
+
         vlcPlayer?.detachVideoOutput()
-//        currentPlayer.pause()
+        super.onPause()
     }
 
 //    override fun onStop() {
@@ -678,20 +705,20 @@ class MainActivity : AppCompatActivity() {
 
     // 释放资源
     override fun onDestroy() {
-        // 先解除 ExoPlayer 对解码 Surface 的引用，再释放播放器和 GL 资源。
+        // onPause() has already detached the decoder Surface and released GL resources
+        // while the EGL context was current. Do not queue GL work after GLSurfaceView
+        // has paused its render thread.
+        activityResumed = false
         if (::player.isInitialized) {
             player.clearVideoSurface()
+            player.release()
         }
         if (::vr180View.isInitialized) {
             vr180View.onVideoSurfaceAvailable = null
-            vr180View.releaseRenderer()
         }
         vr180Surface = null
 
-        if (::player.isInitialized) {
-            player.release()
-        }
-        vlcPlayer?.release() // 释放 VLC 资源
+        vlcPlayer?.release()
         vlcPlayer = null
         super.onDestroy()
     }
