@@ -296,7 +296,6 @@ class MainActivity : AppCompatActivity() {
                         return@setOnTouchListener true
                     }
 
-                MotionEvent.ACTION_UP -> {
                     val density = resources.displayMetrics.density
                     val dx = (event.x - startX) / density
                     val dy = (event.y - startY) / density
@@ -366,8 +365,6 @@ class MainActivity : AppCompatActivity() {
                         playerView.useController = false
                     }
                     true
-                }
-
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
