@@ -443,7 +443,7 @@ class Vr180SbsGlSurfaceView(
                     SOURCE_EQUIRECTANGULAR
                 }
             return if (sourceProjectionMode == SOURCE_DUAL_FISHEYE) {
-                "双圆鱼眼 SBS"
+                "双圆鱼眼 SBS · ${FISHEYE_PRESETS[fisheyePresetIndex].name}"
             } else {
                 "等距柱状 SBS"
             }
@@ -586,6 +586,10 @@ class Vr180SbsGlSurfaceView(
 
             // These are matching presets, not claims about any particular camera.
             // Each SBS half is treated as one image containing a centered fisheye circle.
+            private const val FISHEYE_EQUIDISTANT = 0
+            private const val FISHEYE_EQUISOLID = 1
+            private const val FISHEYE_STEREOGRAPHIC = 2
+
             private val FISHEYE_PRESETS = listOf(
                 FisheyePreset("等距鱼眼 180°", FISHEYE_EQUIDISTANT, 180f),
                 FisheyePreset("等距鱼眼 190°", FISHEYE_EQUIDISTANT, 190f),
@@ -593,10 +597,6 @@ class Vr180SbsGlSurfaceView(
                 FisheyePreset("等立体角鱼眼 180°", FISHEYE_EQUISOLID, 180f),
                 FisheyePreset("球极鱼眼 180°", FISHEYE_STEREOGRAPHIC, 180f)
             )
-
-            private const val FISHEYE_EQUIDISTANT = 0
-            private const val FISHEYE_EQUISOLID = 1
-            private const val FISHEYE_STEREOGRAPHIC = 2
 
             private const val VERTEX_SHADER = """
                 attribute vec2 aPosition;
