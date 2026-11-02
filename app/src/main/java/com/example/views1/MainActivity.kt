@@ -274,7 +274,7 @@ class MainActivity : AppCompatActivity() {
                         if (kotlin.math.hypot(
                                 (centerX - playerViewTwoFingerStartX).toDouble(),
                                 (centerY - playerViewTwoFingerStartY).toDouble()
-                            ) > 12f * density
+                            ) > (12f * density).toDouble()
                         ) {
                             playerViewTwoFingerMoved = true
                         }
