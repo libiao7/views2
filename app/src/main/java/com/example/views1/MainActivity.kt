@@ -69,6 +69,10 @@ class MainActivity : AppCompatActivity() {
     private var vrGesturePreviousDistance = 0f
     private var vrGestureSeekDelta = 0f
     private var vrGestureStartTime = 0L
+    private var playerViewTwoFingerGesture = false
+    private var playerViewTwoFingerMoved = false
+    private var playerViewTwoFingerStartX = 0f
+    private var playerViewTwoFingerStartY = 0f
 
     // 1. 记录当前的解码模式与最新的播放参数
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
@@ -202,12 +206,13 @@ class MainActivity : AppCompatActivity() {
                 MotionEvent.ACTION_UP -> {
                     if (vrGesture == VrGesture.SAME_SIDE_SEEK && !vrGestureMoved &&
                         event.eventTime - vrGestureStartTime < 350L) {
-                        vr180View.cycleProjection()
-                        android.widget.Toast.makeText(
-                            this,
-                            "已切换投影",
-                            android.widget.Toast.LENGTH_SHORT
-                        ).show()
+                        vr180View.cycleProjection { projectionName ->
+                            android.widget.Toast.makeText(
+                                this,
+                                "当前投影：$projectionName",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     } else if (vrGesture == VrGesture.SAME_SIDE_SEEK && vrGestureMoved &&
                         vrGestureSeekDelta != 0f && event.pointerCount == 1) {
                         // The seek is normally committed when the first finger is lifted.
@@ -241,14 +246,55 @@ class MainActivity : AppCompatActivity() {
             )
         )
         playerView.setOnTouchListener { _, event ->
-            when (event.action) {
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-//                    playerView.performClick() // 等同于 _.performClick()
                     startX = event.x
                     startY = event.y
-                    currentPlayer.pause() // 【核心】触碰即暂停
+                    playerViewTwoFingerGesture = false
+                    playerViewTwoFingerMoved = false
+                    currentPlayer.pause()
                     true
                 }
+
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount == 2) {
+                        playerViewTwoFingerGesture = true
+                        playerViewTwoFingerMoved = false
+                        playerViewTwoFingerStartX = (event.getX(0) + event.getX(1)) / 2f
+                        playerViewTwoFingerStartY = (event.getY(0) + event.getY(1)) / 2f
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    if (playerViewTwoFingerGesture && event.pointerCount >= 2) {
+                        val centerX = (event.getX(0) + event.getX(1)) / 2f
+                        val centerY = (event.getY(0) + event.getY(1)) / 2f
+                        val density = resources.displayMetrics.density
+                        if (kotlin.math.hypot(
+                                (centerX - playerViewTwoFingerStartX).toDouble(),
+                                (centerY - playerViewTwoFingerStartY).toDouble()
+                            ) > 12f * density
+                        ) {
+                            playerViewTwoFingerMoved = true
+                        }
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_POINTER_UP -> true
+
+                MotionEvent.ACTION_UP -> {
+                    if (playerViewTwoFingerGesture) {
+                        if (!playerViewTwoFingerMoved && !isVr180Mode) {
+                            switchToVr180Mode()
+                        } else {
+                            currentPlayer.play()
+                        }
+                        playerViewTwoFingerGesture = false
+                        playerViewTwoFingerMoved = false
+                        return@setOnTouchListener true
+                    }
 
                 MotionEvent.ACTION_UP -> {
                     val density = resources.displayMetrics.density
@@ -319,6 +365,15 @@ class MainActivity : AppCompatActivity() {
                         currentPlayer.play()
                         playerView.useController = false
                     }
+                    true
+                }
+
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    playerViewTwoFingerGesture = false
+                    playerViewTwoFingerMoved = false
+                    currentPlayer.play()
                     true
                 }
 
@@ -571,6 +626,26 @@ class MainActivity : AppCompatActivity() {
 //        vr180Toggle.text = "普通"
 
         vr180View.requestRender()
+    }
+
+    /**
+     * Enter VR180 only after an explicit two-finger tap on ordinary 2D playback.
+     * The normal PlayerView path remains the default for filenames without "vr".
+     */
+    private fun switchToVr180Mode() {
+        if (isVr180Mode) return
+
+        pendingVr180Mode = true
+        val surface = vr180Surface
+        if (surface != null && surface.isValid) {
+            enableVr180Mode(surface)
+        } else {
+            playerView.player = null
+            playerView.visibility = View.GONE
+            vr180View.visibility = View.VISIBLE
+            vr180View.requestRender()
+        }
+        currentPlayer.play()
     }
     private fun pointerDistance(event: MotionEvent): Float {
         if (event.pointerCount < 2) return 0f
