@@ -462,7 +462,7 @@ class Vr180SbsGlSurfaceView(
 
         fun adjustZoom(scaleFactor: Float) {
             if (scaleFactor <= 0f) return
-            fovDegrees = (fovDegrees / scaleFactor).coerceIn(35f, 180f)
+            fovDegrees = (fovDegrees / scaleFactor).coerceIn(15f, 180f)
         }
 
         fun cycleProjection(): String {
@@ -523,7 +523,7 @@ class Vr180SbsGlSurfaceView(
             // Upward drag (negative Y) increases FOV and zooms out.
             // Downward drag (positive Y) decreases FOV and zooms in.
             // Horizontal movement alone changes the off-axis IPD adjustment.
-            fovDegrees = (fovDegrees - deltaYmm * 2f).coerceIn(35f, 180f)
+            fovDegrees = (fovDegrees - deltaYmm * 2f).coerceIn(15f, 180f)
             offAxisAdjustment = (
                 offAxisAdjustment - deltaXmm * 0.01f
             ).coerceIn(-0.8f, 0.8f)
@@ -634,7 +634,7 @@ class Vr180SbsGlSurfaceView(
         }
 
         companion object {
-            private const val VERTICAL_FOV_DEGREES = 83.97
+            private const val VERTICAL_FOV_DEGREES = 45
             private const val TARGET_IPD_MM = 58f
             private const val PROJECTION_STEREOGRAPHIC = 0
             private const val PROJECTION_EQUIDISTANT = 1
