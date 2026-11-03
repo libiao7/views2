@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.Surface
@@ -82,6 +83,19 @@ class MainActivity : AppCompatActivity() {
     private var playerViewTwoFingerStartX = 0f
     private var playerViewTwoFingerStartY = 0f
 
+    // Android's gesture detector handles single-finger scroll and double-tap-drag.
+    private lateinit var vrGestureDetector: GestureDetector
+    private var vrGestureDetectorMultiTouch = false
+    private var vrDetectorFirstTapZone = TouchZone.LEFT_BOTTOM
+    private var vrDoubleTapDragActive = false
+    private var vrDoubleTapDragMoved = false
+    private var vrDoubleTapStartX = 0f
+    private var vrDoubleTapStartY = 0f
+    private var vrDoubleTapLastX = 0f
+    private var vrDoubleTapLastY = 0f
+    private var vrSingleFingerTotalX = 0f
+    private var vrSingleFingerTotalY = 0f
+
     // 1. 记录当前的解码模式与最新的播放参数
     private var currentExtensionRendererMode = DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
     private var currentUrl: String? = null
@@ -113,22 +127,145 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val density = resources.displayMetrics.density
+        val xdpi = resources.displayMetrics.xdpi.takeIf { it > 0f } ?: 160f
+        val pxPerMm = xdpi / 25.4f
+        val touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+
+        vrGestureDetector = GestureDetector(
+            this,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean {
+                    // Keep the first tap's zone until GestureDetector decides whether
+                    // the next down event completes a double tap.
+                    vrDetectorFirstTapZone = vrGestureZone
+                    vrSingleFingerTotalX = 0f
+                    vrSingleFingerTotalY = 0f
+                    if (vrGestureZone == TouchZone.LEFT_TOP ||
+                        vrGestureZone == TouchZone.LEFT_BOTTOM
+                    ) {
+                        currentPlayer.pause()
+                    }
+                    return true
+                }
+
+                override fun onScroll(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    distanceX: Float,
+                    distanceY: Float
+                ): Boolean {
+                    if (vrDoubleTapDragActive) return true
+
+                    if (vrGestureZone == TouchZone.RIGHT_TOP ||
+                        vrGestureZone == TouchZone.RIGHT_BOTTOM
+                    ) {
+                        // Ordinary one-finger movement anywhere on the right half
+                        // changes the viewing direction.
+                        vr180View.adjustView(
+                            -distanceX / density * 0.25f,
+                            -distanceY / density * 0.25f
+                        )
+                    } else {
+                        // Left half: defer seeking until ACTION_UP, then compare the
+                        // total horizontal and vertical movement components.
+                        vrSingleFingerTotalX -= distanceX / density
+                        vrSingleFingerTotalY -= distanceY / density
+                    }
+                    return true
+                }
+
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    val rightHalf = e.x >= vr180View.width / 2f
+                    val firstTapWasRight =
+                        vrDetectorFirstTapZone == TouchZone.RIGHT_TOP ||
+                            vrDetectorFirstTapZone == TouchZone.RIGHT_BOTTOM
+                    if (rightHalf && firstTapWasRight) {
+                        vrDoubleTapDragActive = true
+                        vrDoubleTapDragMoved = false
+                        vrDoubleTapStartX = e.x
+                        vrDoubleTapStartY = e.y
+                        vrDoubleTapLastX = e.x
+                        vrDoubleTapLastY = e.y
+                    }
+                    return true
+                }
+
+                override fun onDoubleTapEvent(event: MotionEvent): Boolean {
+                    if (!vrDoubleTapDragActive) return true
+
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_MOVE -> {
+                            val totalX = event.x - vrDoubleTapStartX
+                            val totalY = event.y - vrDoubleTapStartY
+                            if (!vrDoubleTapDragMoved &&
+                                kotlin.math.hypot(
+                                    totalX.toDouble(),
+                                    totalY.toDouble()
+                                ) > touchSlop
+                            ) {
+                                // Apply the complete movement accumulated before the
+                                // touch-slop boundary as the drag begins.
+                                vrDoubleTapDragMoved = true
+                                vr180View.adjustFovAndIpd(
+                                    totalX / pxPerMm,
+                                    totalY / pxPerMm
+                                )
+                                vrDoubleTapLastX = event.x
+                                vrDoubleTapLastY = event.y
+                            } else if (vrDoubleTapDragMoved) {
+                                val dxMm = (event.x - vrDoubleTapLastX) / pxPerMm
+                                val dyMm = (event.y - vrDoubleTapLastY) / pxPerMm
+                                vr180View.adjustFovAndIpd(dxMm, dyMm)
+                                vrDoubleTapLastX = event.x
+                                vrDoubleTapLastY = event.y
+                            }
+                        }
+
+                        MotionEvent.ACTION_UP -> {
+                            if (!vrDoubleTapDragMoved) {
+                                // A double tap without a following drag resets only yaw/pitch.
+                                vr180View.resetView()
+                            }
+                            vrDoubleTapDragActive = false
+                            vrDoubleTapDragMoved = false
+                        }
+
+                        MotionEvent.ACTION_CANCEL -> {
+                            vrDoubleTapDragActive = false
+                            vrDoubleTapDragMoved = false
+                        }
+                    }
+                    return true
+                }
+
+                override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+                    if (event.x < vr180View.width / 2f &&
+                        event.y < vr180View.height / 2f &&
+                        vrVideoMode == VrVideoMode.FISHEYE_SBS
+                    ) {
+                        vr180View.cycleFisheyePreset { showVrSettingToast(it) }
+                    }
+                    return true
+                }
+            }
+        ).apply {
+            setIsLongpressEnabled(false)
+        }
+
         vr180View.setOnTouchListener { _, event ->
-            val density = resources.displayMetrics.density
-            val xdpi = resources.displayMetrics.xdpi.takeIf { it > 0f } ?: 160f
-            val pxPerMm = xdpi / 25.4f
-            val touchSlop = 8f * density
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     vrGestureStartX = event.getX(0)
                     vrGestureStartY = event.getY(0)
-                    vrGesturePreviousX = vrGestureStartX
-                    vrGesturePreviousY = vrGestureStartY
                     vrGestureStartTime = event.eventTime
                     vrGestureMoved = false
                     vrTapHandled = false
                     vrGestureInitialPointerCount = 1
                     vrGestureSeekDelta = 0f
+                    vrGestureDetectorMultiTouch = false
+                    vrDoubleTapDragActive = false
+                    vrDoubleTapDragMoved = false
                     vrGestureZone = when {
                         vrGestureStartX < vr180View.width / 2f &&
                             vrGestureStartY < vr180View.height / 2f -> TouchZone.LEFT_TOP
@@ -137,11 +274,20 @@ class MainActivity : AppCompatActivity() {
                         else -> TouchZone.RIGHT_BOTTOM
                     }
                     vrGesture = VrGesture.SINGLE_VIEW
-                    currentPlayer.pause()
+                    vrGestureDetector.onTouchEvent(event)
                     true
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> {
+                    // Once another pointer joins, cancel single-finger recognition and
+                    // give the existing two-/three-finger handlers exclusive control.
+                    vrGestureDetectorMultiTouch = true
+                    MotionEvent.obtain(event).also { cancelEvent ->
+                        cancelEvent.action = MotionEvent.ACTION_CANCEL
+                        vrGestureDetector.onTouchEvent(cancelEvent)
+                        cancelEvent.recycle()
+                    }
+
                     vrGestureInitialPointerCount = event.pointerCount
                     if (event.pointerCount == 2) {
                         val distance = pointerDistance(event)
@@ -151,6 +297,7 @@ class MainActivity : AppCompatActivity() {
                             VrGesture.SPLIT_ZOOM
                         }
                         vrGesturePreviousDistance = distance
+                        vrGestureStartTime = event.eventTime
                         vrGestureMoved = false
                     } else if (event.pointerCount >= 3) {
                         val firstX = event.getX(0)
@@ -173,54 +320,38 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    if (!vrGestureMoved &&
-                        kotlin.math.hypot(
-                            (event.getX(0) - vrGestureStartX).toDouble(),
-                            (event.getY(0) - vrGestureStartY).toDouble()
-                        ) > touchSlop
-                    ) {
-                        vrGestureMoved = true
-                    }
-                    when {
-                        event.pointerCount == 1 && vrGesture == VrGesture.SINGLE_VIEW -> {
-                            val dxPx = event.getX(0) - vrGesturePreviousX
-                            val dyPx = event.getY(0) - vrGesturePreviousY
-                            val dxMm = dxPx / pxPerMm
-                            val dyMm = dyPx / pxPerMm
-                            when (vrGestureZone) {
-                                TouchZone.RIGHT_TOP -> vr180View.adjustFovAndIpd(dxMm, dyMm)
-                                TouchZone.RIGHT_BOTTOM -> vr180View.adjustView(
-                                    dxPx / density * 0.25f,
-                                    dyPx / density * 0.25f
-                                )
-                                else -> {
-                                    // SBS keeps the legacy horizontal swipe seek behavior outside
-                                    // the dedicated right-side view/FOV/IPD control zones.
-                                    if (vrVideoMode != VrVideoMode.NORMAL_2D &&
-                                        kotlin.math.abs(dxPx) > kotlin.math.abs(dyPx)
-                                    ) {
-                                        vrGestureSeekDelta += dxPx / density
-                                    }
+                    if (!vrGestureDetectorMultiTouch && event.pointerCount == 1) {
+                        vrGestureDetector.onTouchEvent(event)
+                    } else {
+                        if (!vrGestureMoved &&
+                            kotlin.math.hypot(
+                                (event.getX(0) - vrGestureStartX).toDouble(),
+                                (event.getY(0) - vrGestureStartY).toDouble()
+                            ) > touchSlop
+                        ) {
+                            vrGestureMoved = true
+                        }
+                        when {
+                            event.pointerCount >= 2 && vrGesture == VrGesture.SPLIT_ZOOM -> {
+                                // Two-finger movement is not assigned a continuous action.
+                                if (kotlin.math.abs(
+                                        pointerDistance(event) - vrGesturePreviousDistance
+                                    ) > touchSlop
+                                ) {
+                                    vrGestureMoved = true
                                 }
                             }
-                            vrGesturePreviousX = event.getX(0)
-                            vrGesturePreviousY = event.getY(0)
-                        }
-                        event.pointerCount >= 2 && vrGesture == VrGesture.SPLIT_ZOOM -> {
-                            // No continuous two-finger action is assigned; this gesture is a tap
-                            // only when the initial finger spacing is within 30 mm.
-                            if (kotlin.math.abs(pointerDistance(event) - vrGesturePreviousDistance) >
-                                touchSlop
-                            ) vrGestureMoved = true
-                        }
-                        event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
-                            val firstX = event.getX(0)
-                            val firstY = event.getY(0)
-                            val moved = kotlin.math.hypot(
-                                (firstX - vrGestureStartX).toDouble(),
-                                (firstY - vrGestureStartY).toDouble()
-                            )
-                            if (moved > touchSlop) vrGestureMoved = true
+
+                            event.pointerCount >= 3 &&
+                                vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
+                                val firstX = event.getX(0)
+                                val firstY = event.getY(0)
+                                val moved = kotlin.math.hypot(
+                                    (firstX - vrGestureStartX).toDouble(),
+                                    (firstY - vrGestureStartY).toDouble()
+                                )
+                                if (moved > touchSlop) vrGestureMoved = true
+                            }
                         }
                     }
                     true
@@ -249,8 +380,9 @@ class MainActivity : AppCompatActivity() {
                         if (vrGestureZone == TouchZone.LEFT_TOP) {
                             cycleVrVideoMode()
                         } else {
-                            val fraction = (vrGestureStartX / vr180View.width.coerceAtLeast(1))
-                                .coerceIn(0f, 1f)
+                            val fraction = (
+                                vrGestureStartX / vr180View.width.coerceAtLeast(1).toFloat()
+                            ).coerceIn(0f, 1f)
                             val duration = currentPlayer.duration
                             if (duration > 0L) {
                                 currentPlayer.seekTo((duration * fraction).toLong())
@@ -262,34 +394,49 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (!vrTapHandled && vrGesture == VrGesture.SINGLE_VIEW &&
-                        !vrGestureMoved &&
-                        event.eventTime - vrGestureStartTime < 350L &&
-                        vrGestureZone == TouchZone.LEFT_TOP &&
-                        vrVideoMode == VrVideoMode.FISHEYE_SBS
-                    ) {
-                        vr180View.cycleFisheyePreset { showVrSettingToast(it) }
-                    } else if (vrVideoMode != VrVideoMode.NORMAL_2D &&
-                        vrGesture == VrGesture.SINGLE_VIEW &&
-                        vrGestureMoved &&
-                        vrGestureZone != TouchZone.RIGHT_TOP &&
-                        vrGestureZone != TouchZone.RIGHT_BOTTOM &&
-                        kotlin.math.abs(vrGestureSeekDelta) > 10f
-                    ) {
-                        val moveMs = (vrGestureSeekDelta * vrGestureSeekDelta).toLong() *
-                            sign(vrGestureSeekDelta).toLong()
-                        currentPlayer.seekTo(
-                            (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
-                        )
+                    if (vrGestureDetectorMultiTouch) {
+                        if (vrGestureZone == TouchZone.LEFT_TOP ||
+                            vrGestureZone == TouchZone.LEFT_BOTTOM
+                        ) {
+                            currentPlayer.play()
+                        }
+                    } else {
+                        vrGestureDetector.onTouchEvent(event)
+                        if (vrGestureZone == TouchZone.LEFT_TOP ||
+                            vrGestureZone == TouchZone.LEFT_BOTTOM
+                        ) {
+                            if (vrVideoMode != VrVideoMode.NORMAL_2D &&
+                                abs(vrSingleFingerTotalX) > 10f &&
+                                abs(vrSingleFingerTotalX) > abs(vrSingleFingerTotalY)
+                            ) {
+                                val moveMs =
+                                    (vrSingleFingerTotalX * vrSingleFingerTotalX).toLong() *
+                                        sign(vrSingleFingerTotalX).toLong()
+                                currentPlayer.seekTo(
+                                    (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
+                                )
+                            }
+                            currentPlayer.play()
+                        }
                     }
                     vrGesture = VrGesture.NONE
-                    currentPlayer.play()
+                    vrGestureDetectorMultiTouch = false
                     true
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
+                    if (!vrGestureDetectorMultiTouch) {
+                        vrGestureDetector.onTouchEvent(event)
+                    }
+                    if (vrGestureZone == TouchZone.LEFT_TOP ||
+                        vrGestureZone == TouchZone.LEFT_BOTTOM
+                    ) {
+                        currentPlayer.play()
+                    }
                     vrGesture = VrGesture.NONE
-                    currentPlayer.play()
+                    vrGestureDetectorMultiTouch = false
+                    vrDoubleTapDragActive = false
+                    vrDoubleTapDragMoved = false
                     true
                 }
 
