@@ -126,6 +126,14 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
+    /** Resets only the viewing direction, preserving the current FOV and IPD adjustment. */
+    fun resetView() {
+        queueEvent {
+            vrRenderer.resetView()
+            requestRender()
+        }
+    }
+
     /** Resets view direction, FOV and user IPD offset to their defaults. */
     fun resetViewFovIpd() {
         queueEvent {
@@ -134,7 +142,7 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
-    /** Right-top gesture: horizontal motion adjusts IPD; vertical motion adjusts FOV and IPD together. */
+    /** Double-tap-drag: horizontal motion adjusts IPD; vertical motion adjusts only FOV. */
     fun adjustFovAndIpd(deltaXmm: Float, deltaYmm: Float) {
         queueEvent {
             vrRenderer.adjustFovAndIpd(deltaXmm, deltaYmm)
@@ -500,19 +508,24 @@ class Vr180SbsGlSurfaceView(
             sourceProjectionMode = if (enabled) SOURCE_DUAL_FISHEYE else SOURCE_EQUIRECTANGULAR
         }
 
-        fun resetViewFovIpd() {
+        fun resetView() {
             yawDegrees = 0f
             pitchDegrees = 0f
+        }
+
+        fun resetViewFovIpd() {
+            resetView()
             fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
             offAxisAdjustment = 0f
         }
 
         fun adjustFovAndIpd(deltaXmm: Float, deltaYmm: Float) {
-            // Upward drag zooms out (larger FOV) and slightly reduces effective IPD.
-            // Downward drag zooms in (smaller FOV) and increases effective IPD.
-            fovDegrees = (fovDegrees - deltaYmm * 0.35f).coerceIn(35f, 180f)
+            // Upward drag (negative Y) increases FOV and zooms out.
+            // Downward drag (positive Y) decreases FOV and zooms in.
+            // Horizontal movement alone changes the off-axis IPD adjustment.
+            fovDegrees = (fovDegrees + deltaYmm * 0.35f).coerceIn(35f, 180f)
             offAxisAdjustment = (
-                offAxisAdjustment - deltaXmm * 0.0015f - deltaYmm * 0.00075f
+                offAxisAdjustment - deltaXmm * 0.0015f
             ).coerceIn(-0.8f, 0.8f)
         }
 
