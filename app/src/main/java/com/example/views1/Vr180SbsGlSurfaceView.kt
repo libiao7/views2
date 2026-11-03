@@ -523,7 +523,7 @@ class Vr180SbsGlSurfaceView(
             // Upward drag (negative Y) increases FOV and zooms out.
             // Downward drag (positive Y) decreases FOV and zooms in.
             // Horizontal movement alone changes the off-axis IPD adjustment.
-            fovDegrees = (fovDegrees + deltaYmm * 0.35f).coerceIn(35f, 180f)
+            fovDegrees = (fovDegrees - deltaYmm * 0.35f).coerceIn(35f, 180f)
             offAxisAdjustment = (
                 offAxisAdjustment - deltaXmm * 0.0015f
             ).coerceIn(-0.8f, 0.8f)
