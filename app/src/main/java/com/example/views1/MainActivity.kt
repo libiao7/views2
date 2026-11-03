@@ -252,7 +252,7 @@ class MainActivity : AppCompatActivity() {
                             val fraction = (vrGestureStartX / vr180View.width.coerceAtLeast(1))
                                 .coerceIn(0f, 1f)
                             val duration = currentPlayer.duration
-                            if (duration > 0L && duration != Player.TIME_UNSET) {
+                            if (duration > 0L) {
                                 currentPlayer.seekTo((duration * fraction).toLong())
                             }
                         }
