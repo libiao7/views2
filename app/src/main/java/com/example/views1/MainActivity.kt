@@ -39,6 +39,12 @@ class MainActivity : AppCompatActivity() {
 //    private lateinit var vr180Toggle: android.widget.Button
     private var vr180Surface: Surface? = null
     private var isVr180Mode = false
+    private enum class VrVideoMode { NORMAL_2D, EQUIRECTANGULAR_SBS, FISHEYE_SBS }
+    private enum class TouchZone { LEFT_TOP, LEFT_BOTTOM, RIGHT_TOP, RIGHT_BOTTOM }
+    private var vrVideoMode = VrVideoMode.NORMAL_2D
+    private var vrGestureZone = TouchZone.LEFT_BOTTOM
+    private var vrTapHandled = false
+    private var vrGestureInitialPointerCount = 1
     private var vlcPlayer: VlcPlayer? = null
     private var pendingVr180Mode = false
     // Keep only the newest projection notification; cancel the previous Toast before showing another.
@@ -109,160 +115,179 @@ class MainActivity : AppCompatActivity() {
 
         vr180View.setOnTouchListener { _, event ->
             val density = resources.displayMetrics.density
+            val xdpi = resources.displayMetrics.xdpi.takeIf { it > 0f } ?: 160f
+            val pxPerMm = xdpi / 25.4f
+            val touchSlop = 8f * density
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    startX = event.x
-                    startY = event.y
-                    vrGesture = VrGesture.SINGLE_VIEW
-                    vrGestureMoved = false
-                    vrGestureStartX = event.x
-                    vrGestureStartY = event.y
-                    vrGesturePreviousX = event.x
-                    vrGesturePreviousY = event.y
+                    vrGestureStartX = event.getX(0)
+                    vrGestureStartY = event.getY(0)
+                    vrGesturePreviousX = vrGestureStartX
+                    vrGesturePreviousY = vrGestureStartY
                     vrGestureStartTime = event.eventTime
+                    vrGestureMoved = false
+                    vrTapHandled = false
+                    vrGestureInitialPointerCount = 1
                     vrGestureSeekDelta = 0f
-                    vr180MultiTouch = false
-                    vr180GestureStarted = true
+                    vrGestureZone = when {
+                        vrGestureStartX < vr180View.width / 2f &&
+                            vrGestureStartY < vr180View.height / 2f -> TouchZone.LEFT_TOP
+                        vrGestureStartX < vr180View.width / 2f -> TouchZone.LEFT_BOTTOM
+                        vrGestureStartY < vr180View.height / 2f -> TouchZone.RIGHT_TOP
+                        else -> TouchZone.RIGHT_BOTTOM
+                    }
+                    vrGesture = VrGesture.SINGLE_VIEW
                     currentPlayer.pause()
                     true
                 }
 
                 MotionEvent.ACTION_POINTER_DOWN -> {
+                    vrGestureInitialPointerCount = event.pointerCount
                     if (event.pointerCount == 2) {
-                        val leftSide0 = event.getX(0) < vr180View.width / 2f
-                        val leftSide1 = event.getX(1) < vr180View.width / 2f
-                        vrGesture = if (leftSide0 != leftSide1) {
-                            VrGesture.SPLIT_ZOOM
-                        } else {
+                        val distance = pointerDistance(event)
+                        vrGesture = if (distance <= 30f * pxPerMm) {
                             VrGesture.SAME_SIDE_SEEK
+                        } else {
+                            VrGesture.SPLIT_ZOOM
                         }
-                        vrGestureStartX = (event.getX(0) + event.getX(1)) / 2f
-                        vrGestureStartY = (event.getY(0) + event.getY(1)) / 2f
-                        vrGesturePreviousX = vrGestureStartX
-                        vrGesturePreviousY = vrGestureStartY
-                        vrGesturePreviousDistance = pointerDistance(event)
-                        vrGestureSeekDelta = 0f
+                        vrGesturePreviousDistance = distance
                         vrGestureMoved = false
                     } else if (event.pointerCount >= 3) {
-                        vrGesture = VrGesture.TRIPLE_OFF_AXIS
+                        val firstX = event.getX(0)
+                        val firstY = event.getY(0)
+                        val withinTapRadius = (1 until event.pointerCount).all { index ->
+                            kotlin.math.hypot(
+                                (event.getX(index) - firstX).toDouble(),
+                                (event.getY(index) - firstY).toDouble()
+                            ) <= (80f * pxPerMm).toDouble()
+                        }
+                        vrGesture = if (withinTapRadius) {
+                            VrGesture.TRIPLE_OFF_AXIS
+                        } else {
+                            VrGesture.NONE
+                        }
                         vrGestureStartTime = event.eventTime
-                        vrGestureStartX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
-                        vrGestureStartY = (0 until event.pointerCount).map { event.getY(it) }.average().toFloat()
-                        vrGesturePreviousX = vrGestureStartX
                         vrGestureMoved = false
                     }
-                    vr180MultiTouch = true
                     true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
+                    if (!vrGestureMoved &&
+                        kotlin.math.hypot(
+                            (event.getX(0) - vrGestureStartX).toDouble(),
+                            (event.getY(0) - vrGestureStartY).toDouble()
+                        ) > touchSlop
+                    ) {
+                        vrGestureMoved = true
+                    }
                     when {
-                        event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
-                            val centerX = (0 until event.pointerCount).map { event.getX(it) }.average().toFloat()
-                            val centerY = (0 until event.pointerCount).map { event.getY(it) }.average().toFloat()
-                            val dx = centerX - vrGesturePreviousX
-                            val totalDx = centerX - vrGestureStartX
-                            val totalDy = centerY - vrGestureStartY
-                            val touchSlop = 8f * density
-                            // Any deliberate movement cancels a tap; horizontal-dominant
-                            // movement retains the existing three-finger IPD adjustment.
-                            if (!vrGestureMoved &&
-                                kotlin.math.hypot(totalDx.toDouble(), totalDy.toDouble()) > touchSlop
-                            ) {
-                                vrGestureMoved = true
-                            }
-                            if (vrGestureMoved &&
-                                kotlin.math.abs(totalDx) > touchSlop &&
-                                kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy) &&
-                                kotlin.math.abs(dx) > 0.1f
-                            ) {
-                                vr180View.adjustOffAxisOffset(-dx / density)
-                            }
-                            vrGesturePreviousX = centerX
-                        }
-                        event.pointerCount >= 2 && vrGesture == VrGesture.SPLIT_ZOOM -> {
-                            val distance = pointerDistance(event)
-                            if (vrGesturePreviousDistance > 0f && distance > 0f) {
-                                vr180View.adjustZoom(distance / vrGesturePreviousDistance)
-                                if (kotlin.math.abs(distance - vrGesturePreviousDistance) > 0.5f) {
-                                    vrGestureMoved = true
+                        event.pointerCount == 1 && vrGesture == VrGesture.SINGLE_VIEW -> {
+                            val dxPx = event.getX(0) - vrGesturePreviousX
+                            val dyPx = event.getY(0) - vrGesturePreviousY
+                            val dxMm = dxPx / pxPerMm
+                            val dyMm = dyPx / pxPerMm
+                            when (vrGestureZone) {
+                                TouchZone.RIGHT_TOP -> vr180View.adjustFovAndIpd(dxMm, dyMm)
+                                TouchZone.RIGHT_BOTTOM -> vr180View.adjustView(
+                                    dxPx / density * 0.25f,
+                                    dyPx / density * 0.25f
+                                )
+                                else -> {
+                                    // SBS keeps the legacy horizontal swipe seek behavior outside
+                                    // the dedicated right-side view/FOV/IPD control zones.
+                                    if (vrVideoMode != VrVideoMode.NORMAL_2D &&
+                                        kotlin.math.abs(dxPx) > kotlin.math.abs(dyPx)
+                                    ) {
+                                        vrGestureSeekDelta += dxPx / density
+                                    }
                                 }
                             }
-                            vrGesturePreviousDistance = distance
+                            vrGesturePreviousX = event.getX(0)
+                            vrGesturePreviousY = event.getY(0)
                         }
-                        event.pointerCount >= 2 && vrGesture == VrGesture.SAME_SIDE_SEEK -> {
-                            val midX = (event.getX(0) + event.getX(1)) / 2f
-                            val dx = midX - vrGesturePreviousX
-                            vrGestureSeekDelta += dx / density
-                            if (kotlin.math.abs(midX - vrGestureStartX) > 8f) vrGestureMoved = true
-                            vrGesturePreviousX = midX
+                        event.pointerCount >= 2 && vrGesture == VrGesture.SPLIT_ZOOM -> {
+                            // No continuous two-finger action is assigned; this gesture is a tap
+                            // only when the initial finger spacing is within 30 mm.
+                            if (kotlin.math.abs(pointerDistance(event) - vrGesturePreviousDistance) >
+                                touchSlop
+                            ) vrGestureMoved = true
                         }
-                        event.pointerCount == 1 && vrGesture == VrGesture.SINGLE_VIEW -> {
-                            val dx = (event.x - vrGesturePreviousX) / density
-                            val dy = (event.y - vrGesturePreviousY) / density
-                            if (kotlin.math.abs(dx) + kotlin.math.abs(dy) > 0.1f) {
-                                vr180View.adjustView(dx * 0.25f, dy * 0.25f)
-                                vrGestureMoved = true
-                            }
-                            vrGesturePreviousX = event.x
-                            vrGesturePreviousY = event.y
+                        event.pointerCount >= 3 && vrGesture == VrGesture.TRIPLE_OFF_AXIS -> {
+                            val firstX = event.getX(0)
+                            val firstY = event.getY(0)
+                            val moved = kotlin.math.hypot(
+                                (firstX - vrGestureStartX).toDouble(),
+                                (firstY - vrGestureStartY).toDouble()
+                            )
+                            if (moved > touchSlop) vrGestureMoved = true
                         }
                     }
                     true
                 }
 
                 MotionEvent.ACTION_POINTER_UP -> {
-                    vr180MultiTouch = true
-                    if (vrGesture == VrGesture.SAME_SIDE_SEEK && vrGestureMoved) {
-                        val moveMs = (vrGestureSeekDelta * vrGestureSeekDelta).toLong() *
-                            sign(vrGestureSeekDelta).toLong()
-                        currentPlayer.seekTo((currentPlayer.currentPosition + moveMs).coerceAtLeast(0L))
+                    if (event.pointerCount == 3 &&
+                        vrGesture == VrGesture.TRIPLE_OFF_AXIS &&
+                        !vrGestureMoved &&
+                        event.eventTime - vrGestureStartTime < 350L &&
+                        !vrTapHandled
+                    ) {
+                        if (vrGestureZone == TouchZone.LEFT_TOP) {
+                            vr180View.cycleProjection { showVrSettingToast("当前投影：$it") }
+                        } else {
+                            vr180View.resetViewFovIpd()
+                            showVrSettingToast("已重置视角、FOV 和瞳距")
+                        }
+                        vrTapHandled = true
+                    } else if (event.pointerCount == 2 &&
+                        vrGesture == VrGesture.SAME_SIDE_SEEK &&
+                        !vrGestureMoved &&
+                        event.eventTime - vrGestureStartTime < 350L &&
+                        !vrTapHandled
+                    ) {
+                        if (vrGestureZone == TouchZone.LEFT_TOP) {
+                            cycleVrVideoMode()
+                        } else {
+                            val fraction = (vrGestureStartX / vr180View.width.coerceAtLeast(1))
+                                .coerceIn(0f, 1f)
+                            val duration = currentPlayer.duration
+                            if (duration > 0L && duration != Player.TIME_UNSET) {
+                                currentPlayer.seekTo((duration * fraction).toLong())
+                            }
+                        }
+                        vrTapHandled = true
                     }
-                    vrGesturePreviousDistance = 0f
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (vrGesture == VrGesture.SAME_SIDE_SEEK && !vrGestureMoved &&
-                        event.eventTime - vrGestureStartTime < 350L) {
-                        vr180View.cycleTapSetting { settingName ->
-                            // Rapid setting changes should replace, not queue, notifications.
-                            if (!isFinishing && !isDestroyed) {
-                                projectionToast?.cancel()
-                                projectionToast = android.widget.Toast.makeText(
-                                    applicationContext,
-                                    "当前设置：$settingName",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).also { it.show() }
-                            }
-                        }
-                    } else if (vrGesture == VrGesture.TRIPLE_OFF_AXIS && !vrGestureMoved &&
-                        event.eventTime - vrGestureStartTime < 350L
+                    if (!vrTapHandled && vrGesture == VrGesture.SINGLE_VIEW &&
+                        !vrGestureMoved &&
+                        event.eventTime - vrGestureStartTime < 350L &&
+                        vrGestureZone == TouchZone.LEFT_TOP &&
+                        vrVideoMode == VrVideoMode.FISHEYE_SBS
                     ) {
-                        vr180View.cycleSourceProjection { sourceName ->
-                            if (!isFinishing && !isDestroyed) {
-                                projectionToast?.cancel()
-                                projectionToast = android.widget.Toast.makeText(
-                                    applicationContext,
-                                    "源投影：$sourceName",
-                                    android.widget.Toast.LENGTH_SHORT
-                                ).also { it.show() }
-                            }
-                        }
-                    } else if (vrGesture == VrGesture.SAME_SIDE_SEEK && vrGestureMoved &&
-                        vrGestureSeekDelta != 0f && event.pointerCount == 1) {
-                        // The seek is normally committed when the first finger is lifted.
+                        vr180View.cycleFisheyePreset { showVrSettingToast(it) }
+                    } else if (vrVideoMode != VrVideoMode.NORMAL_2D &&
+                        vrGesture == VrGesture.SINGLE_VIEW &&
+                        vrGestureMoved &&
+                        vrGestureZone != TouchZone.RIGHT_TOP &&
+                        vrGestureZone != TouchZone.RIGHT_BOTTOM &&
+                        kotlin.math.abs(vrGestureSeekDelta) > 10f
+                    ) {
+                        val moveMs = (vrGestureSeekDelta * vrGestureSeekDelta).toLong() *
+                            sign(vrGestureSeekDelta).toLong()
+                        currentPlayer.seekTo(
+                            (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
+                        )
                     }
-                    vr180GestureStarted = false
-                    vr180PreviousDistance = 0f
                     vrGesture = VrGesture.NONE
                     currentPlayer.play()
                     true
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
-                    vr180GestureStarted = false
-                    vr180PreviousDistance = 0f
                     vrGesture = VrGesture.NONE
                     currentPlayer.play()
                     true
@@ -646,11 +671,51 @@ class MainActivity : AppCompatActivity() {
             startPlay(data.toString(), null)
         }
     }
+    private fun showVrSettingToast(message: String) {
+        if (!isFinishing && !isDestroyed) {
+            projectionToast?.cancel()
+            projectionToast = android.widget.Toast.makeText(
+                applicationContext,
+                message,
+                android.widget.Toast.LENGTH_SHORT
+            ).also { it.show() }
+        }
+    }
+
+    private fun cycleVrVideoMode() {
+        when (vrVideoMode) {
+            VrVideoMode.NORMAL_2D -> {
+                vrVideoMode = VrVideoMode.EQUIRECTANGULAR_SBS
+                vr180View.setFisheyeSource(false)
+                switchToVr180Mode()
+            }
+            VrVideoMode.EQUIRECTANGULAR_SBS -> {
+                vrVideoMode = VrVideoMode.FISHEYE_SBS
+                vr180View.setFisheyeSource(true)
+                showVrSettingToast("视频模式：双圆鱼眼 SBS")
+            }
+            VrVideoMode.FISHEYE_SBS -> {
+                vrVideoMode = VrVideoMode.NORMAL_2D
+                pendingVr180Mode = false
+                isVr180Mode = false
+                if (::player.isInitialized) {
+                    player.setVideoSurface(null)
+                    playerView.player = null
+                    playerView.player = player
+                }
+                vr180View.visibility = View.GONE
+                playerView.visibility = View.VISIBLE
+                showVrSettingToast("视频模式：普通 2D")
+            }
+        }
+    }
+
     private fun enableVr180Mode(surface: Surface) {
         if (!surface.isValid) return
 
         pendingVr180Mode = false
         isVr180Mode = true
+        vr180View.setFisheyeSource(vrVideoMode == VrVideoMode.FISHEYE_SBS)
 
         playerView.player = null
         player.setVideoSurface(surface)
@@ -699,6 +764,7 @@ class MainActivity : AppCompatActivity() {
         val shouldUseVr180 = fileName.contains("vr", ignoreCase = true)
 
         isVr180Mode = shouldUseVr180
+        vrVideoMode = if (shouldUseVr180) VrVideoMode.EQUIRECTANGULAR_SBS else VrVideoMode.NORMAL_2D
         pendingVr180Mode = shouldUseVr180
 
         if (shouldUseVr180) {
