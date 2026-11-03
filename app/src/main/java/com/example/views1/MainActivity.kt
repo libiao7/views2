@@ -348,6 +348,10 @@ class MainActivity : AppCompatActivity() {
                 MotionEvent.ACTION_UP -> {
                     if (playerViewTwoFingerGesture) {
                         if (!playerViewTwoFingerMoved && !isVr180Mode) {
+                            // Enter VR through the same explicit equirectangular-SBS
+                            // state transition used by the VR gesture handler.
+                            vrVideoMode = VrVideoMode.EQUIRECTANGULAR_SBS
+                            vr180View.setFisheyeSource(false)
                             switchToVr180Mode()
                         } else {
                             currentPlayer.play()
