@@ -353,6 +353,7 @@ class MainActivity : AppCompatActivity() {
                             vrVideoMode = VrVideoMode.EQUIRECTANGULAR_SBS
                             vr180View.setFisheyeSource(false)
                             switchToVr180Mode()
+                            showVrSettingToast("视频模式：等距柱状 SBS")
                         } else {
                             currentPlayer.play()
                         }
@@ -692,6 +693,7 @@ class MainActivity : AppCompatActivity() {
                 vrVideoMode = VrVideoMode.EQUIRECTANGULAR_SBS
                 vr180View.setFisheyeSource(false)
                 switchToVr180Mode()
+                showVrSettingToast("视频模式：等距柱状 SBS")
             }
             VrVideoMode.EQUIRECTANGULAR_SBS -> {
                 vrVideoMode = VrVideoMode.FISHEYE_SBS
