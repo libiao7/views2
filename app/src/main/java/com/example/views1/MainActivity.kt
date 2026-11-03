@@ -176,17 +176,18 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onDoubleTap(e: MotionEvent): Boolean {
-                    val rightHalf = e.x >= vr180View.width / 2f
+                    // GestureDetector supplies the first tap's DOWN event here.
+                    // The current zone already belongs to the second tap.
                     val firstTapWasRight =
-                        vrDetectorFirstTapZone == TouchZone.RIGHT_TOP ||
-                            vrDetectorFirstTapZone == TouchZone.RIGHT_BOTTOM
-                    if (rightHalf && firstTapWasRight) {
+                        e.x >= vr180View.width / 2f &&
+                            (vrDetectorFirstTapZone == TouchZone.RIGHT_TOP ||
+                                vrDetectorFirstTapZone == TouchZone.RIGHT_BOTTOM)
+                    val secondTapWasRight =
+                        vrGestureZone == TouchZone.RIGHT_TOP ||
+                            vrGestureZone == TouchZone.RIGHT_BOTTOM
+                    if (firstTapWasRight && secondTapWasRight) {
                         vrDoubleTapDragActive = true
                         vrDoubleTapDragMoved = false
-                        vrDoubleTapStartX = e.x
-                        vrDoubleTapStartY = e.y
-                        vrDoubleTapLastX = e.x
-                        vrDoubleTapLastY = e.y
                     }
                     return true
                 }
@@ -195,6 +196,14 @@ class MainActivity : AppCompatActivity() {
                     if (!vrDoubleTapDragActive) return true
 
                     when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            // Start the drag from the second DOWN, not the first tap.
+                            vrDoubleTapStartX = event.x
+                            vrDoubleTapStartY = event.y
+                            vrDoubleTapLastX = event.x
+                            vrDoubleTapLastY = event.y
+                        }
+
                         MotionEvent.ACTION_MOVE -> {
                             val totalX = event.x - vrDoubleTapStartX
                             val totalY = event.y - vrDoubleTapStartY
