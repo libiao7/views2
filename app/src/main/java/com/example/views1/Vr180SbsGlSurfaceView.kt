@@ -109,6 +109,39 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
+    /** Cycles only the fisheye lens preset; does not alter the viewport projection. */
+    fun cycleFisheyePreset(onChanged: (String) -> Unit) {
+        queueEvent {
+            val settingName = vrRenderer.cycleFisheyePreset()
+            requestRender()
+            mainHandler.post { onChanged(settingName) }
+        }
+    }
+
+    /** Explicitly selects the SBS source mapping. */
+    fun setFisheyeSource(enabled: Boolean) {
+        queueEvent {
+            vrRenderer.setFisheyeSource(enabled)
+            requestRender()
+        }
+    }
+
+    /** Resets view direction, FOV and user IPD offset to their defaults. */
+    fun resetViewFovIpd() {
+        queueEvent {
+            vrRenderer.resetViewFovIpd()
+            requestRender()
+        }
+    }
+
+    /** Right-top gesture: horizontal motion adjusts IPD; vertical motion adjusts FOV and IPD together. */
+    fun adjustFovAndIpd(deltaXmm: Float, deltaYmm: Float) {
+        queueEvent {
+            vrRenderer.adjustFovAndIpd(deltaXmm, deltaYmm)
+            requestRender()
+        }
+    }
+
     /** Supplies the decoded SBS frame dimensions so the two fisheye circles remain circular in pixels. */
     fun setSourceVideoSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
@@ -456,6 +489,31 @@ class Vr180SbsGlSurfaceView(
             } else {
                 "屏幕观察投影：${cycleProjection()}"
             }
+        }
+
+        fun cycleFisheyePreset(): String {
+            fisheyePresetIndex = (fisheyePresetIndex + 1) % FISHEYE_PRESETS.size
+            return "鱼眼镜头预设：${FISHEYE_PRESETS[fisheyePresetIndex].name}"
+        }
+
+        fun setFisheyeSource(enabled: Boolean) {
+            sourceProjectionMode = if (enabled) SOURCE_DUAL_FISHEYE else SOURCE_EQUIRECTANGULAR
+        }
+
+        fun resetViewFovIpd() {
+            yawDegrees = 0f
+            pitchDegrees = 0f
+            fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
+            offAxisAdjustment = 0f
+        }
+
+        fun adjustFovAndIpd(deltaXmm: Float, deltaYmm: Float) {
+            // Upward drag zooms out (larger FOV) and slightly reduces effective IPD.
+            // Downward drag zooms in (smaller FOV) and increases effective IPD.
+            fovDegrees = (fovDegrees - deltaYmm * 0.35f).coerceIn(35f, 180f)
+            offAxisAdjustment = (
+                offAxisAdjustment - deltaXmm * 0.0015f - deltaYmm * 0.00075f
+            ).coerceIn(-0.8f, 0.8f)
         }
 
         fun setSourceVideoSize(width: Int, height: Int) {
