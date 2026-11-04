@@ -141,11 +141,8 @@ class MainActivity : AppCompatActivity() {
                     vrDetectorFirstTapZone = vrGestureZone
                     vrSingleFingerTotalX = 0f
                     vrSingleFingerTotalY = 0f
-                    if (vrGestureZone == TouchZone.LEFT_TOP ||
-                        vrGestureZone == TouchZone.LEFT_BOTTOM
-                    ) {
-                        currentPlayer.pause()
-                    }
+                    // Playback is controlled globally by the first pointer's
+                    // DOWN/UP lifecycle, not by the gesture zone.
                     return true
                 }
 
@@ -265,6 +262,8 @@ class MainActivity : AppCompatActivity() {
         vr180View.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    // Pause as soon as the first finger touches anywhere in VR mode.
+                    currentPlayer.pause()
                     vrGestureStartX = event.getX(0)
                     vrGestureStartY = event.getY(0)
                     vrGestureStartTime = event.eventTime
@@ -403,31 +402,27 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (vrGestureDetectorMultiTouch) {
-                        if (vrGestureZone == TouchZone.LEFT_TOP ||
-                            vrGestureZone == TouchZone.LEFT_BOTTOM
-                        ) {
-                            currentPlayer.play()
-                        }
-                    } else {
+                    if (!vrGestureDetectorMultiTouch) {
                         vrGestureDetector.onTouchEvent(event)
-                        if (vrGestureZone == TouchZone.LEFT_TOP ||
-                            vrGestureZone == TouchZone.LEFT_BOTTOM
+                        // The left half keeps horizontal-swipe seeking. It no longer
+                        // owns pause/resume; that is global to the VR touch sequence.
+                        if ((vrGestureZone == TouchZone.LEFT_TOP ||
+                                vrGestureZone == TouchZone.LEFT_BOTTOM) &&
+                            vrVideoMode != VrVideoMode.NORMAL_2D &&
+                            abs(vrSingleFingerTotalX) > 10f &&
+                            abs(vrSingleFingerTotalX) > abs(vrSingleFingerTotalY)
                         ) {
-                            if (vrVideoMode != VrVideoMode.NORMAL_2D &&
-                                abs(vrSingleFingerTotalX) > 10f &&
-                                abs(vrSingleFingerTotalX) > abs(vrSingleFingerTotalY)
-                            ) {
-                                val moveMs =
-                                    (vrSingleFingerTotalX * vrSingleFingerTotalX).toLong() *
-                                        sign(vrSingleFingerTotalX).toLong()
-                                currentPlayer.seekTo(
-                                    (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
-                                )
-                            }
-                            currentPlayer.play()
+                            val moveMs =
+                                (vrSingleFingerTotalX * vrSingleFingerTotalX).toLong() *
+                                    sign(vrSingleFingerTotalX).toLong()
+                            currentPlayer.seekTo(
+                                (currentPlayer.currentPosition + moveMs).coerceAtLeast(0L)
+                            )
                         }
                     }
+                    // Resume only when the final finger is released, regardless of zone
+                    // or whether the sequence was single-touch or multi-touch.
+                    currentPlayer.play()
                     vrGesture = VrGesture.NONE
                     vrGestureDetectorMultiTouch = false
                     true
@@ -437,11 +432,8 @@ class MainActivity : AppCompatActivity() {
                     if (!vrGestureDetectorMultiTouch) {
                         vrGestureDetector.onTouchEvent(event)
                     }
-                    if (vrGestureZone == TouchZone.LEFT_TOP ||
-                        vrGestureZone == TouchZone.LEFT_BOTTOM
-                    ) {
-                        currentPlayer.play()
-                    }
+                    // A cancelled touch sequence must not leave playback paused.
+                    currentPlayer.play()
                     vrGesture = VrGesture.NONE
                     vrGestureDetectorMultiTouch = false
                     vrDoubleTapDragActive = false
