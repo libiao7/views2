@@ -186,8 +186,7 @@ class Vr180SbsGlSurfaceView(
         private var textureId = 0
 
         // Shader uniform handles.
-        private var yawHandle = 0
-        private var pitchHandle = 0
+        private var viewRotationHandle = 0
         private var projectionHandle = 0
         private var ipdOffsetHandle = 0
         private var sourceProjectionHandle = 0
@@ -216,6 +215,15 @@ class Vr180SbsGlSurfaceView(
         private var frameAvailable = false
 
         private val textureMatrix = FloatArray(16)
+
+        // Column-major 3x3 matrix: R_pitch * R_yaw.
+        // Recomputed only when the viewing direction changes.
+        private val viewRotationMatrix = FloatArray(9).apply {
+            this[0] = 1f
+            this[4] = 1f
+            this[8] = 1f
+        }
+        private var viewRotationMatrixDirty = true
 
         private var positionHandle = 0
         private var texMatrixHandle = 0
@@ -253,8 +261,9 @@ class Vr180SbsGlSurfaceView(
                 GLES20.glGetUniformLocation(program, "uHalfFovRadians")
             aspectHandle = GLES20.glGetUniformLocation(program, "uAspect")
             samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
-            yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
-            pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
+            viewRotationHandle =
+                GLES20.glGetUniformLocation(program, "uViewRotation")
+            viewRotationMatrixDirty = true
             projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
             ipdOffsetHandle = GLES20.glGetUniformLocation(program, "uIpdOffset")
             sourceProjectionHandle =
@@ -385,8 +394,17 @@ class Vr180SbsGlSurfaceView(
             val halfFovRadians =
                 Math.toRadians(fovDegrees.toDouble() / 2.0).toFloat()
 
-            GLES20.glUniform1f(yawHandle, yawDegrees)
-            GLES20.glUniform1f(pitchHandle, pitchDegrees)
+            if (viewRotationMatrixDirty) {
+                updateViewRotationMatrix()
+                GLES20.glUniformMatrix3fv(
+                    viewRotationHandle,
+                    1,
+                    false,
+                    viewRotationMatrix,
+                    0
+                )
+                viewRotationMatrixDirty = false
+            }
             GLES20.glUniform1i(projectionHandle, projectionMode)
             GLES20.glUniform1i(sourceProjectionHandle, sourceProjectionMode)
 
@@ -458,6 +476,33 @@ class Vr180SbsGlSurfaceView(
             yawDegrees = (yawDegrees + yawDelta).coerceIn(-85f, 85f)
             pitchDegrees =
                 (pitchDegrees + pitchDelta).coerceIn(-80f, 80f)
+            viewRotationMatrixDirty = true
+        }
+
+        /**
+         * Builds R_pitch * R_yaw in column-major order for GLSL.
+         * This preserves the previous shader's yaw-then-pitch rotation order.
+         */
+        private fun updateViewRotationMatrix() {
+            val yaw = Math.toRadians(yawDegrees.toDouble())
+            val pitch = Math.toRadians(pitchDegrees.toDouble())
+
+            val cy = Math.cos(yaw).toFloat()
+            val sy = Math.sin(yaw).toFloat()
+            val cp = Math.cos(pitch).toFloat()
+            val sp = Math.sin(pitch).toFloat()
+
+            viewRotationMatrix[0] = cy
+            viewRotationMatrix[1] = sp * sy
+            viewRotationMatrix[2] = -cp * sy
+
+            viewRotationMatrix[3] = 0f
+            viewRotationMatrix[4] = cp
+            viewRotationMatrix[5] = sp
+
+            viewRotationMatrix[6] = sy
+            viewRotationMatrix[7] = -sp * cy
+            viewRotationMatrix[8] = cp * cy
         }
 
         fun adjustZoom(scaleFactor: Float) {
@@ -511,6 +556,7 @@ class Vr180SbsGlSurfaceView(
         fun resetView() {
             yawDegrees = 0f
             pitchDegrees = 0f
+            viewRotationMatrixDirty = true
         }
 
         fun resetViewFovIpd() {
@@ -688,8 +734,7 @@ class Vr180SbsGlSurfaceView(
                 uniform float uEye;
                 uniform float uHalfFovRadians;
                 uniform float uAspect;
-                uniform float uYaw;
-                uniform float uPitch;
+                uniform mat3 uViewRotation;
                 uniform int uProjectionMode;
                 uniform float uIpdOffset;
                 uniform int uSourceProjectionMode;
@@ -740,26 +785,9 @@ class Vr180SbsGlSurfaceView(
                         -cos(theta)
                     );
 
-                    // Rotate the view ray horizontally and vertically.
-                    float yaw = radians(uYaw);
-                    float pitch = radians(uPitch);
-
-                    float cy = cos(yaw);
-                    float sy = sin(yaw);
-                    float cp = cos(pitch);
-                    float sp = sin(pitch);
-
-                    vec3 yawRay = vec3(
-                        cy * ray.x + sy * ray.z,
-                        ray.y,
-                        -sy * ray.x + cy * ray.z
-                    );
-
-                    vec3 viewRay = vec3(
-                        yawRay.x,
-                        cp * yawRay.y - sp * yawRay.z,
-                        sp * yawRay.y + cp * yawRay.z
-                    );
+                    // View rotation is precomputed on the GL thread and shared
+                    // by every fragment in both eye draw calls.
+                    vec3 viewRay = uViewRotation * ray;
 
                     float longitude = atan(viewRay.x, -viewRay.z);
                     float latitude = asin(
