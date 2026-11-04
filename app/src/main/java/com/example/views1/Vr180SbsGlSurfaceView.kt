@@ -254,6 +254,8 @@ class Vr180SbsGlSurfaceView(
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             GLES20.glClearColor(0f, 0f, 0f, 1f)
 
+            // A recreated EGL context invalidates the previous GL program name.
+            program = 0
             rebuildProgram()
 
             val ids = IntArray(1)
