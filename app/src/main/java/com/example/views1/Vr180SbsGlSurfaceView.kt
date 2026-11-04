@@ -167,6 +167,15 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
+    /** Toggles between the real VR180 projection shader and a simple SBS texture-sampling diagnostic shader. */
+    fun toggleDiagnosticShader(onChanged: (Boolean) -> Unit) {
+        queueEvent {
+            val enabled = vrRenderer.toggleDiagnosticShader()
+            requestRender()
+            mainHandler.post { onChanged(enabled) }
+        }
+    }
+
     /**
      * Call after ExoPlayer has detached from the Surface.
      */
@@ -183,6 +192,7 @@ class Vr180SbsGlSurfaceView(
     ) : Renderer {
 
         private var program = 0
+        private var diagnosticSimpleShader = false
         private var textureId = 0
 
         // Shader uniform handles.
@@ -244,26 +254,7 @@ class Vr180SbsGlSurfaceView(
         override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
             GLES20.glClearColor(0f, 0f, 0f, 1f)
 
-            program = createProgram(VERTEX_SHADER, FRAGMENT_SHADER)
-
-            positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
-            texMatrixHandle = GLES20.glGetUniformLocation(program, "uTexMatrix")
-            eyeHandle = GLES20.glGetUniformLocation(program, "uEye")
-            halfFovHandle =
-                GLES20.glGetUniformLocation(program, "uHalfFovRadians")
-            aspectHandle = GLES20.glGetUniformLocation(program, "uAspect")
-            samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
-            yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
-            pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
-            projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
-            ipdOffsetHandle = GLES20.glGetUniformLocation(program, "uIpdOffset")
-            sourceProjectionHandle =
-                GLES20.glGetUniformLocation(program, "uSourceProjectionMode")
-            fisheyeModelHandle = GLES20.glGetUniformLocation(program, "uFisheyeModel")
-            fisheyeHalfFovHandle =
-                GLES20.glGetUniformLocation(program, "uFisheyeHalfFov")
-            fisheyeCenterHandle = GLES20.glGetUniformLocation(program, "uFisheyeCenter")
-            fisheyeRadiusHandle = GLES20.glGetUniformLocation(program, "uFisheyeRadius")
+            rebuildProgram()
 
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
@@ -308,6 +299,42 @@ class Vr180SbsGlSurfaceView(
             val surface = Surface(st)
             decoderSurface = surface
             onSurfaceReady(surface)
+        }
+
+        fun toggleDiagnosticShader(): Boolean {
+            diagnosticSimpleShader = !diagnosticSimpleShader
+            rebuildProgram()
+            return diagnosticSimpleShader
+        }
+
+        /** Rebuilds the active program and refreshes all locations for that program. */
+        private fun rebuildProgram() {
+            val newProgram = createProgram(
+                VERTEX_SHADER,
+                if (diagnosticSimpleShader) SIMPLE_FRAGMENT_SHADER else FRAGMENT_SHADER
+            )
+            val oldProgram = program
+            program = newProgram
+
+            positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
+            texMatrixHandle = GLES20.glGetUniformLocation(program, "uTexMatrix")
+            eyeHandle = GLES20.glGetUniformLocation(program, "uEye")
+            halfFovHandle = GLES20.glGetUniformLocation(program, "uHalfFovRadians")
+            aspectHandle = GLES20.glGetUniformLocation(program, "uAspect")
+            samplerHandle = GLES20.glGetUniformLocation(program, "uVideo")
+            yawHandle = GLES20.glGetUniformLocation(program, "uYaw")
+            pitchHandle = GLES20.glGetUniformLocation(program, "uPitch")
+            projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
+            ipdOffsetHandle = GLES20.glGetUniformLocation(program, "uIpdOffset")
+            sourceProjectionHandle = GLES20.glGetUniformLocation(program, "uSourceProjectionMode")
+            fisheyeModelHandle = GLES20.glGetUniformLocation(program, "uFisheyeModel")
+            fisheyeHalfFovHandle = GLES20.glGetUniformLocation(program, "uFisheyeHalfFov")
+            fisheyeCenterHandle = GLES20.glGetUniformLocation(program, "uFisheyeCenter")
+            fisheyeRadiusHandle = GLES20.glGetUniformLocation(program, "uFisheyeRadius")
+
+            if (oldProgram != 0) {
+                GLES20.glDeleteProgram(oldProgram)
+            }
         }
 
         override fun onSurfaceChanged(
@@ -676,6 +703,30 @@ class Vr180SbsGlSurfaceView(
                 void main() {
                     vScreen = aPosition;
                     gl_Position = vec4(aPosition, 0.0, 1.0);
+                }
+            """
+
+            /**
+             * Diagnostic only: keeps the same OES video texture, SurfaceTexture update,
+             * two-eye viewport draws and texture sampling, but removes all VR projection math.
+             * Each eye samples only its corresponding half of the SBS source frame.
+             */
+            private const val SIMPLE_FRAGMENT_SHADER = """
+                #extension GL_OES_EGL_image_external : require
+                precision highp float;
+
+                uniform samplerExternalOES uVideo;
+                uniform mat4 uTexMatrix;
+                uniform float uEye;
+                varying vec2 vScreen;
+
+                void main() {
+                    vec2 eyeUv = vec2(
+                        (uEye + (vScreen.x * 0.5 + 0.5)) * 0.5,
+                        vScreen.y * 0.5 + 0.5
+                    );
+                    vec2 uv = (uTexMatrix * vec4(eyeUv, 0.0, 1.0)).xy;
+                    gl_FragColor = texture2D(uVideo, uv);
                 }
             """
 
