@@ -68,7 +68,9 @@ class MainActivity : AppCompatActivity() {
     private var vr180PreviousMidX = 0f
     private var vr180PreviousMidY = 0f
     private var vr180GestureStarted = false
-    private enum class VrGesture { NONE, SINGLE_VIEW, SPLIT_ZOOM, SAME_SIDE_SEEK, TRIPLE_OFF_AXIS }
+    private enum class VrGesture {
+        NONE, SINGLE_VIEW, SPLIT_ZOOM, SAME_SIDE_SEEK, TRIPLE_OFF_AXIS, DIAGNOSTIC_SHADER_TOGGLE
+    }
     private var vrGesture = VrGesture.NONE
     private var vrGestureMoved = false
     private var vrGestureStartX = 0f
@@ -298,7 +300,23 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     vrGestureInitialPointerCount = event.pointerCount
-                    if (event.pointerCount == 2) {
+                    if (event.pointerCount >= 4) {
+                        val firstX = event.getX(0)
+                        val firstY = event.getY(0)
+                        val withinTapRadius = (1 until event.pointerCount).all { index ->
+                            kotlin.math.hypot(
+                                (event.getX(index) - firstX).toDouble(),
+                                (event.getY(index) - firstY).toDouble()
+                            ) <= (80f * pxPerMm).toDouble()
+                        }
+                        vrGesture = if (withinTapRadius) {
+                            VrGesture.DIAGNOSTIC_SHADER_TOGGLE
+                        } else {
+                            VrGesture.NONE
+                        }
+                        vrGestureStartTime = event.eventTime
+                        vrGestureMoved = false
+                    } else if (event.pointerCount == 2) {
                         val distance = pointerDistance(event)
                         vrGesture = if (distance <= 30f * pxPerMm) {
                             VrGesture.SAME_SIDE_SEEK
@@ -367,7 +385,23 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_POINTER_UP -> {
-                    if (event.pointerCount == 3 &&
+                    if (event.pointerCount >= 4 &&
+                        vrGesture == VrGesture.DIAGNOSTIC_SHADER_TOGGLE &&
+                        !vrGestureMoved &&
+                        event.eventTime - vrGestureStartTime < 350L &&
+                        !vrTapHandled
+                    ) {
+                        vr180View.toggleDiagnosticShader { simpleShaderEnabled ->
+                            showVrSettingToast(
+                                if (simpleShaderEnabled) {
+                                    "诊断模式：简单纹理采样（无 VR180 投影）"
+                                } else {
+                                    "正常模式：VR180 投影 Shader"
+                                }
+                            )
+                        }
+                        vrTapHandled = true
+                    } else if (event.pointerCount == 3 &&
                         vrGesture == VrGesture.TRIPLE_OFF_AXIS &&
                         !vrGestureMoved &&
                         event.eventTime - vrGestureStartTime < 350L &&
