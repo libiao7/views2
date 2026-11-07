@@ -70,8 +70,11 @@ class MainActivity : AppCompatActivity() {
     private var vr180GestureStarted = false
     private enum class VrGesture { NONE, SINGLE_VIEW, SPLIT_ZOOM, SAME_SIDE_SEEK, TRIPLE_OFF_AXIS, CROSS_SCREEN_FOV_IPD }
     private var vrCrossScreenLeftPointerId = -1
-    private var vrCrossScreenLastX = 0f
-    private var vrCrossScreenLastY = 0f
+    private var vrCrossScreenRightPointerId = -1
+    private var vrCrossScreenLeftLastX = 0f
+    private var vrCrossScreenLeftLastY = 0f
+    private var vrCrossScreenRightLastX = 0f
+    private var vrCrossScreenRightLastY = 0f
     private var vrGesture = VrGesture.NONE
     private var vrGestureMoved = false
     private var vrGestureStartX = 0f
@@ -314,12 +317,15 @@ class MainActivity : AppCompatActivity() {
                             pointerDistance(event) > vr180View.width / 2f
 
                         if (spansBothSides) {
-                            // The left-side pointer controls FOV/IPD; the right pointer
-                            // only keeps the cross-screen gesture active.
+                            // Track both fingers independently. The left finger controls
+                            // FOV/IPD; the right finger continues the normal view-rotation gesture.
                             vrGesture = VrGesture.CROSS_SCREEN_FOV_IPD
                             vrCrossScreenLeftPointerId = event.getPointerId(leftIndex)
-                            vrCrossScreenLastX = event.getX(leftIndex)
-                            vrCrossScreenLastY = event.getY(leftIndex)
+                            vrCrossScreenRightPointerId = event.getPointerId(rightIndex)
+                            vrCrossScreenLeftLastX = event.getX(leftIndex)
+                            vrCrossScreenLeftLastY = event.getY(leftIndex)
+                            vrCrossScreenRightLastX = event.getX(rightIndex)
+                            vrCrossScreenRightLastY = event.getY(rightIndex)
                         } else {
                             val distance = pointerDistance(event)
                             vrGesture = if (distance <= 30f * pxPerMm) {
@@ -365,20 +371,52 @@ class MainActivity : AppCompatActivity() {
                             vrGestureMoved = true
                         }
                         when {
-                            event.pointerCount == 2 &&
-                                vrGesture == VrGesture.CROSS_SCREEN_FOV_IPD -> {
-                                val leftIndex = event.findPointerIndex(vrCrossScreenLeftPointerId)
+                            vrGesture == VrGesture.CROSS_SCREEN_FOV_IPD -> {
+                                // Each pointer has its own ID and previous position:
+                                // moving one finger never consumes the other finger's delta.
+                                val leftIndex =
+                                    if (vrCrossScreenLeftPointerId >= 0) {
+                                        event.findPointerIndex(vrCrossScreenLeftPointerId)
+                                    } else {
+                                        -1
+                                    }
                                 if (leftIndex >= 0) {
                                     val currentX = event.getX(leftIndex)
                                     val currentY = event.getY(leftIndex)
-                                    val deltaXmm = (currentX - vrCrossScreenLastX) / pxPerMm
-                                    val deltaYmm = (currentY - vrCrossScreenLastY) / pxPerMmY
+                                    val deltaXmm =
+                                        (currentX - vrCrossScreenLeftLastX) / pxPerMm
+                                    val deltaYmm =
+                                        (currentY - vrCrossScreenLeftLastY) / pxPerMmY
                                     if (deltaXmm != 0f || deltaYmm != 0f) {
+                                        // X changes IPD only; Y changes FOV only.
                                         vr180View.adjustFovAndIpd(deltaXmm, deltaYmm)
                                         vrGestureMoved = true
                                     }
-                                    vrCrossScreenLastX = currentX
-                                    vrCrossScreenLastY = currentY
+                                    vrCrossScreenLeftLastX = currentX
+                                    vrCrossScreenLeftLastY = currentY
+                                }
+
+                                val rightIndex =
+                                    if (vrCrossScreenRightPointerId >= 0) {
+                                        event.findPointerIndex(vrCrossScreenRightPointerId)
+                                    } else {
+                                        -1
+                                    }
+                                if (rightIndex >= 0) {
+                                    val currentX = event.getX(rightIndex)
+                                    val currentY = event.getY(rightIndex)
+                                    val deltaX = currentX - vrCrossScreenRightLastX
+                                    val deltaY = currentY - vrCrossScreenRightLastY
+                                    if (deltaX != 0f || deltaY != 0f) {
+                                        // Preserve the right finger's normal view rotation.
+                                        vr180View.adjustView(
+                                            deltaX / density * 0.25f,
+                                            deltaY / density * 0.25f
+                                        )
+                                        vrGestureMoved = true
+                                    }
+                                    vrCrossScreenRightLastX = currentX
+                                    vrCrossScreenRightLastY = currentY
                                 }
                             }
 
@@ -408,6 +446,18 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 MotionEvent.ACTION_POINTER_UP -> {
+                    if (vrGesture == VrGesture.CROSS_SCREEN_FOV_IPD) {
+                        // Stop tracking only the finger that was lifted. The other
+                        // finger keeps its own gesture active until it is lifted too.
+                        val liftedPointerId = event.getPointerId(event.actionIndex)
+                        if (liftedPointerId == vrCrossScreenLeftPointerId) {
+                            vrCrossScreenLeftPointerId = -1
+                        }
+                        if (liftedPointerId == vrCrossScreenRightPointerId) {
+                            vrCrossScreenRightPointerId = -1
+                        }
+                    }
+
                     if (event.pointerCount == 3 &&
                         vrGesture == VrGesture.TRIPLE_OFF_AXIS &&
                         !vrGestureMoved &&
@@ -468,6 +518,7 @@ class MainActivity : AppCompatActivity() {
                     vrGesture = VrGesture.NONE
                     vrGestureDetectorMultiTouch = false
                     vrCrossScreenLeftPointerId = -1
+                    vrCrossScreenRightPointerId = -1
                     true
                 }
 
@@ -480,6 +531,7 @@ class MainActivity : AppCompatActivity() {
                     vrGesture = VrGesture.NONE
                     vrGestureDetectorMultiTouch = false
                     vrCrossScreenLeftPointerId = -1
+                    vrCrossScreenRightPointerId = -1
                     vrDoubleTapDragActive = false
                     vrDoubleTapDragMoved = false
                     true
