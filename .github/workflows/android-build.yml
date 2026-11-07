@@ -33,6 +33,14 @@ jobs:
       - name: Build debug APK
         run: bash ./gradlew --no-daemon assembleDebug
 
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: views2-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Prepare branch-specific release tag
         id: release
         if: github.event_name == 'workflow_dispatch'
