@@ -33,11 +33,37 @@ jobs:
       - name: Build debug APK
         run: bash ./gradlew --no-daemon assembleDebug
 
+      - name: Name APK
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk_path="$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          if [[ -z "$apk_path" ]]; then
+            echo "No APK found."
+            exit 1
+          fi
+
+          timestamp="$(TZ=Asia/Taipei date '+%Y年%-m月%-d日%H点%M分')"
+          tag_timestamp="$(TZ=Asia/Taipei date '+%Y%m%d-%H%M')"
+          short_sha="${GITHUB_SHA:0:7}"
+          filename="views1-arm64-v8a-debug-${timestamp}-${short_sha}.apk"
+          output_path="app/build/outputs/apk/debug/${filename}"
+          mv "$apk_path" "$output_path"
+
+          branch_slug="${GITHUB_REF_NAME//\//-}"
+          tag="build-${branch_slug}-${tag_timestamp}-${short_sha}-run-${GITHUB_RUN_ID}"
+
+          echo "path=$output_path" >> "$GITHUB_OUTPUT"
+          echo "name=${filename%.apk}" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: views2-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: ${{ steps.apk.outputs.path }}
           if-no-files-found: error
           retention-days: 14
 
@@ -47,8 +73,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const branch = context.ref.slice("refs/heads/".length);
-            const tag = `build-${branch.replaceAll("/", "-")}`;
+            const tag = "${{ steps.apk.outputs.tag }}";
             const ref = `tags/${tag}`;
 
             try {
@@ -81,13 +106,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
-          name: Android Debug - ${{ github.ref_name }}
+          name: ${{ steps.apk.outputs.name }}
           body: |
             Automatically built Android Debug APK.
 
             Branch: ${{ github.ref_name }}
             Commit: ${{ github.sha }}
-          files: app/build/outputs/apk/debug/*.apk
+          files: ${{ steps.apk.outputs.path }}
           overwrite_files: true
           fail_on_unmatched_files: true
           make_latest: false
