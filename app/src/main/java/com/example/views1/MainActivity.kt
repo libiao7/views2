@@ -389,7 +389,7 @@ class MainActivity : AppCompatActivity() {
                                     val currentX = event.getX(leftIndex)
                                     val currentY = event.getY(leftIndex)
                                     val deltaXmm =
-                                        (currentX - vrCrossScreenLeftLastX) / pxPerMm
+                                        -(currentX - vrCrossScreenLeftLastX) / pxPerMm
                                     val deltaYmm =
                                         (currentY - vrCrossScreenLeftLastY) / pxPerMmY
                                     if (deltaXmm != 0f || deltaYmm != 0f) {
