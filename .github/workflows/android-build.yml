@@ -1,13 +1,18 @@
 name: Android build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
       - feature/vr180-sbs-opengl
+      - feature/vr180-cross-screen-fov-ipd
   pull_request:
     branches:
       - master
+
+permissions:
+  contents: read
 
 jobs:
   assemble-debug:
@@ -27,3 +32,11 @@ jobs:
 
       - name: Build debug APK
         run: bash ./gradlew --no-daemon assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: views2-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
