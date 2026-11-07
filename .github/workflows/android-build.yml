@@ -12,7 +12,7 @@ on:
       - master
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   assemble-debug:
@@ -33,10 +33,53 @@ jobs:
       - name: Build debug APK
         run: bash ./gradlew --no-daemon assembleDebug
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+      - name: Prepare branch-specific release tag
+        id: release
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v7
         with:
-          name: views2-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          script: |
+            const branch = context.ref.replace(/^refs\\/heads\\//, "");
+            const tag = `build-${branch.replaceAll("/", "-")}`;
+            const ref = `tags/${tag}`;
+
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref
+              });
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha: context.sha,
+                force: true
+              });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/${ref}`,
+                sha: context.sha
+              });
+            }
+
+            core.setOutput("tag", tag);
+
+      - name: Publish APK to branch Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: Android Debug - ${{ github.ref_name }}
+          body: |
+            Automatically built Android Debug APK.
+
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+          files: app/build/outputs/apk/debug/*.apk
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          make_latest: false
