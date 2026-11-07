@@ -91,15 +91,6 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
-    /** Two-finger tap: cycle the fisheye lens preset in fisheye mode, otherwise the screen projection. */
-    fun cycleTapSetting(onChanged: (String) -> Unit) {
-        queueEvent {
-            val settingName = vrRenderer.cycleTapSetting()
-            requestRender()
-            mainHandler.post { onChanged(settingName) }
-        }
-    }
-
     /** Cycles only the fisheye lens preset; does not alter the viewport projection. */
     fun cycleFisheyePreset(onChanged: (String) -> Unit) {
         queueEvent {
@@ -508,15 +499,6 @@ class Vr180SbsGlSurfaceView(
                 "双圆鱼眼 SBS · ${FISHEYE_PRESETS[fisheyePresetIndex].name}"
             } else {
                 "等距柱状 SBS"
-            }
-        }
-
-        fun cycleTapSetting(): String {
-            return if (sourceProjectionMode == SOURCE_DUAL_FISHEYE) {
-                fisheyePresetIndex = (fisheyePresetIndex + 1) % FISHEYE_PRESETS.size
-                "鱼眼镜头预设：${FISHEYE_PRESETS[fisheyePresetIndex].name}"
-            } else {
-                "屏幕观察投影：${cycleProjection()}"
             }
         }
 
