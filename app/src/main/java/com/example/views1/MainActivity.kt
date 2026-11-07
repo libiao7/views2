@@ -315,8 +315,7 @@ class MainActivity : AppCompatActivity() {
                         val leftX = event.getX(leftIndex)
                         val rightX = event.getX(rightIndex)
                         val spansBothSides = leftX < vr180View.width / 2f &&
-                            rightX >= vr180View.width / 2f &&
-                            pointerDistance(event) > vr180View.width / 2f
+                            rightX >= vr180View.width / 2f
 
                         vrCrossScreenLeftPointerId = -1
                         vrCrossScreenRightPointerId = -1
