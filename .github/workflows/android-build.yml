@@ -69,7 +69,7 @@ jobs:
 
       - name: Prepare branch-specific release tag
         id: release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.actor == 'libiao7')
         uses: actions/github-script@v7
         with:
           script: |
@@ -102,7 +102,7 @@ jobs:
             core.setOutput("tag", tag);
 
       - name: Publish APK to branch Release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.actor == 'libiao7')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
