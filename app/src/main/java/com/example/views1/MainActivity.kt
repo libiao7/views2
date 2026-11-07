@@ -311,7 +311,7 @@ class MainActivity : AppCompatActivity() {
                         val rightX = event.getX(rightIndex)
                         val spansBothSides = leftX < vr180View.width / 2f &&
                             rightX >= vr180View.width / 2f &&
-                            rightX - leftX > vr180View.width / 2f
+                            pointerDistance(event) > vr180View.width / 2f
 
                         if (spansBothSides) {
                             // The left-side pointer controls FOV/IPD; the right pointer
@@ -467,6 +467,7 @@ class MainActivity : AppCompatActivity() {
                     currentPlayer.play()
                     vrGesture = VrGesture.NONE
                     vrGestureDetectorMultiTouch = false
+                    vrCrossScreenLeftPointerId = -1
                     true
                 }
 
@@ -478,6 +479,7 @@ class MainActivity : AppCompatActivity() {
                     currentPlayer.play()
                     vrGesture = VrGesture.NONE
                     vrGestureDetectorMultiTouch = false
+                    vrCrossScreenLeftPointerId = -1
                     vrDoubleTapDragActive = false
                     vrDoubleTapDragMoved = false
                     true
