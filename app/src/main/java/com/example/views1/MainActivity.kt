@@ -279,6 +279,8 @@ class MainActivity : AppCompatActivity() {
                     vrTapHandled = false
                     vrGestureInitialPointerCount = 1
                     vrGestureSeekDelta = 0f
+                    vrCrossScreenLeftPointerId = -1
+                    vrCrossScreenRightPointerId = -1
                     vrGestureDetectorMultiTouch = false
                     vrDoubleTapDragActive = false
                     vrDoubleTapDragMoved = false
@@ -316,6 +318,8 @@ class MainActivity : AppCompatActivity() {
                             rightX >= vr180View.width / 2f &&
                             pointerDistance(event) > vr180View.width / 2f
 
+                        vrCrossScreenLeftPointerId = -1
+                        vrCrossScreenRightPointerId = -1
                         if (spansBothSides) {
                             // Track both fingers independently. The left finger controls
                             // FOV/IPD; the right finger continues the normal view-rotation gesture.
@@ -339,6 +343,7 @@ class MainActivity : AppCompatActivity() {
                         vrGestureMoved = false
                     } else if (event.pointerCount >= 3) {
                         vrCrossScreenLeftPointerId = -1
+                        vrCrossScreenRightPointerId = -1
                         val firstX = event.getX(0)
                         val firstY = event.getY(0)
                         val withinTapRadius = (1 until event.pointerCount).all { index ->
