@@ -82,15 +82,6 @@ class Vr180SbsGlSurfaceView(
         }
     }
 
-    /** Cycles the existing screen/viewport projection. */
-    fun cycleProjection(onChanged: (String) -> Unit) {
-        queueEvent {
-            val projectionName = vrRenderer.cycleProjection()
-            requestRender()
-            mainHandler.post { onChanged(projectionName) }
-        }
-    }
-
     /** Switches the input video mapping between equirectangular SBS and dual-circle fisheye SBS. */
     fun cycleSourceProjection(onChanged: (String) -> Unit) {
         queueEvent {
@@ -187,7 +178,6 @@ class Vr180SbsGlSurfaceView(
 
         // Shader uniform handles.
         private var viewRotationHandle = 0
-        private var projectionHandle = 0
         private var ipdOffsetHandle = 0
         private var sourceProjectionHandle = 0
         private var fisheyeModelHandle = 0
@@ -199,8 +189,7 @@ class Vr180SbsGlSurfaceView(
         private var fovDegrees = VERTICAL_FOV_DEGREES.toFloat()
         private var yawDegrees = 0f
         private var pitchDegrees = 0f
-        // Screen projection and source projection are deliberately independent.
-        private var projectionMode = PROJECTION_STEREOGRAPHIC
+        // The viewport projection is fixed to Stereographic.
         private var sourceProjectionMode = SOURCE_EQUIRECTANGULAR
         private var fisheyePresetIndex = 0
         private var sourceVideoWidth = 2
@@ -264,7 +253,6 @@ class Vr180SbsGlSurfaceView(
             viewRotationHandle =
                 GLES20.glGetUniformLocation(program, "uViewRotation")
             viewRotationMatrixDirty = true
-            projectionHandle = GLES20.glGetUniformLocation(program, "uProjectionMode")
             ipdOffsetHandle = GLES20.glGetUniformLocation(program, "uIpdOffset")
             sourceProjectionHandle =
                 GLES20.glGetUniformLocation(program, "uSourceProjectionMode")
@@ -405,7 +393,6 @@ class Vr180SbsGlSurfaceView(
                 )
                 viewRotationMatrixDirty = false
             }
-            GLES20.glUniform1i(projectionHandle, projectionMode)
             GLES20.glUniform1i(sourceProjectionHandle, sourceProjectionMode)
 
             val fisheyePreset = FISHEYE_PRESETS[fisheyePresetIndex]
@@ -508,17 +495,6 @@ class Vr180SbsGlSurfaceView(
         fun adjustZoom(scaleFactor: Float) {
             if (scaleFactor <= 0f) return
             fovDegrees = (fovDegrees / scaleFactor).coerceIn(15f, 180f)
-        }
-
-        fun cycleProjection(): String {
-            projectionMode = (projectionMode + 1) % PROJECTION_COUNT
-            fovDegrees = fovDegrees.coerceAtMost(180f)
-            return when (projectionMode) {
-                PROJECTION_STEREOGRAPHIC -> "球极平面投影（Stereographic）"
-                PROJECTION_EQUIDISTANT -> "等距鱼眼投影（Equidistant）"
-                PROJECTION_EQUISOLID -> "等立体角投影（Equisolid）"
-                else -> error("Unsupported projection mode: $projectionMode")
-            }
         }
 
         fun cycleSourceProjection(): String {
@@ -682,11 +658,6 @@ class Vr180SbsGlSurfaceView(
         companion object {
             private const val VERTICAL_FOV_DEGREES = 45
             private const val TARGET_IPD_MM = 58f
-            private const val PROJECTION_STEREOGRAPHIC = 0
-            private const val PROJECTION_EQUIDISTANT = 1
-            private const val PROJECTION_EQUISOLID = 2
-            private const val PROJECTION_COUNT = 3
-
             private const val SOURCE_EQUIRECTANGULAR = 0
             private const val SOURCE_DUAL_FISHEYE = 1
 
@@ -735,7 +706,6 @@ class Vr180SbsGlSurfaceView(
                 uniform float uHalfFovRadians;
                 uniform float uAspect;
                 uniform mat3 uViewRotation;
-                uniform int uProjectionMode;
                 uniform float uIpdOffset;
                 uniform int uSourceProjectionMode;
                 uniform int uFisheyeModel;
@@ -748,33 +718,14 @@ class Vr180SbsGlSurfaceView(
                 const float PI = 3.14159265358979323846;
 
                 void main() {
-                    // Inverse-map screen radius using the selected standard projection.
-                    // uHalfFovRadians is the vertical half-FOV. Each projection uses
-                    // its own radial function, scaled so the vertical edge midpoint
-                    // corresponds to that same spherical angle.
+                    // Fixed Stereographic viewport projection:
+                    // rho = tan(theta/2) / tan(alpha/2).
                     float eyeAxisShift = uEye < 0.5 ? uIpdOffset : -uIpdOffset;
                     vec2 screen = vec2((vScreen.x - eyeAxisShift) * uAspect, vScreen.y);
                     float radius = length(screen);
                     float alpha = uHalfFovRadians;
-                    float theta = 0.0;
-                    bool projectionValid = true;
-
-                    if (uProjectionMode == 0) {
-                        // Stereographic: rho = tan(theta/2) / tan(alpha/2).
-                        theta = 2.0 * atan(radius * tan(alpha * 0.5));
-                        projectionValid = theta < 3.1415925;
-                    } else if (uProjectionMode == 1) {
-                        // Equidistant: rho = theta / alpha.
-                        theta = radius * alpha;
-                        projectionValid = theta <= 3.1415925;
-                    } else {
-                        // Equisolid: rho = sin(theta/2) / sin(alpha/2).
-                        float value = radius * sin(alpha * 0.5);
-                        projectionValid = value <= 1.0;
-                        if (projectionValid) {
-                            theta = 2.0 * asin(value);
-                        }
-                    }
+                    float theta = 2.0 * atan(radius * tan(alpha * 0.5));
+                    bool projectionValid = theta < 3.1415925;
 
                     float sinThetaOverRadius = radius > 0.000001
                         ? sin(theta) / radius
